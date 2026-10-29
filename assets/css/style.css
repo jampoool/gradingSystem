@@ -1,0 +1,166 @@
+/**
+ * GradeFlow — Academic & Grading Management System
+ * Design System: "Academic Prestige" (WCAG 2.2 AA & 60-30-10 Compliant)
+ *
+ * Palette Reference:
+ * - Primary Brand (Midnight Navy): #17243A | Hover (Deep Navy): #243752
+ * - Secondary / Info (Slate Blue): #5276A7 | Info BG: #EBF1F8 | Info Text: #2C4870
+ * - Success (Deep Teal):           #0F766E | Success BG (Pale Mint): #D5F0EA
+ * - Danger / Failed (Berry Plum):  #9B3F72 | Danger Text (Dark Berry): #842D60 | Danger BG (Soft Rose): #F5DFEB
+ * - Warning (Antique Amber):       #B7791F | Warning Text (Dark Amber): #80530F | Warning BG (Pale Sand): #FFF0D1
+ * - Page Background (Cloud White): #F5F7FA | Card Background: #FFFFFF | Borders (Cool Gray): #D8DEE8
+ * - Primary Text (Ink Navy):       #17243A | Secondary Text (Slate Gray): #64748B
+ */
+
+:root {
+    --ap-navy: #17243A;
+    --ap-navy-hover: #243752;
+    --ap-slate-blue: #5276A7;
+    --ap-slate-blue-bg: #EBF1F8;
+    --ap-slate-blue-text: #2C4870;
+    --ap-teal: #0F766E;
+    --ap-mint-bg: #D5F0EA;
+    --ap-mint-border: #99D8CC;
+    --ap-plum: #9B3F72;
+    --ap-berry-text: #842D60;
+    --ap-rose-bg: #F5DFEB;
+    --ap-rose-border: #E2B8CF;
+    --ap-amber: #B7791F;
+    --ap-amber-text: #80530F;
+    --ap-sand-bg: #FFF0D1;
+    --ap-sand-border: #F0D296;
+    --ap-cloud: #F5F7FA;
+    --ap-white: #FFFFFF;
+    --ap-border: #D8DEE8;
+    --ap-ink: #17243A;
+    --ap-muted: #64748B;
+}
+
+html, body {
+    font-size: 15px;
+    line-height: 1.5;
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    color: var(--ap-ink);
+    background-color: var(--ap-cloud);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+[x-cloak] {
+    display: none !important;
+}
+
+/* Active view stretches to fill available viewport height with zero blank gaps */
+.view-panel:not(.hidden) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0%;
+    min-height: 0;
+}
+
+/* Semantic Status Badges (WCAG 2.2 AA Contrast Compliant) */
+.badge-success {
+    background-color: var(--ap-mint-bg);
+    color: var(--ap-teal);
+    border: 1px solid var(--ap-mint-border);
+}
+
+.badge-danger {
+    background-color: var(--ap-rose-bg);
+    color: var(--ap-berry-text);
+    border: 1px solid var(--ap-rose-border);
+}
+
+.badge-warning {
+    background-color: var(--ap-sand-bg);
+    color: var(--ap-amber-text);
+    border: 1px solid var(--ap-sand-border);
+}
+
+.badge-info {
+    background-color: var(--ap-slate-blue-bg);
+    color: var(--ap-slate-blue-text);
+    border: 1px solid #C5D6EB;
+}
+
+/* Accessible Focus Rings for Keyboard Usability Testing */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid var(--ap-slate-blue);
+    outline-offset: 1px;
+}
+
+/* Refined Scrollbars for Data Tables & Panels */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--ap-cloud);
+    border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #C4CDD9;
+    border-radius: 9999px;
+    border: 2px solid var(--ap-cloud);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94A3B8;
+}
+
+/* Toast Notification Animation */
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.toast-enter {
+    animation: slideInRight 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Number Input Ergonomics */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    opacity: 1;
+}
+
+/* Grade Input Cell Highlight on Focus */
+input[data-grade-input="true"]:focus {
+    background-color: var(--ap-slate-blue-bg);
+    border-color: var(--ap-slate-blue);
+    box-shadow: 0 0 0 3px rgba(82, 118, 167, 0.22);
+}
+
+/* Print Layout Optimization */
+@media print {
+    aside,
+    header,
+    .no-print {
+        display: none !important;
+    }
+    main {
+        padding: 0 !important;
+        max-width: 100% !important;
+        overflow: visible !important;
+    }
+    body {
+        background: white !important;
+        font-size: 12pt !important;
+        height: auto !important;
+        overflow: visible !important;
+    }
+}

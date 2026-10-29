@@ -231,6 +231,124 @@ function generateStudentNo(PDO $pdo): string
     }
 }
 
+/**
+ * Parses a single line from Bulk Student Add into:
+ * ['student_no' => string, 'first_name' => string, 'middle_name' => string, 'last_name' => string]
+ * Supports:
+ * - "Last Name, First Name [Middle]" (e.g. "Dela Cruz, Juan M.")
+ * - "First Name [Middle] Last Name" (e.g. "Juan M. Dela Cruz" or "Juan Dela Cruz")
+ * - Optional leading Student ID separated by |, tab, ;, or comma (e.g. "2026-0010 | Dela Cruz, Juan M." or "2026-0010, Dela Cruz, Juan")
+ */
+function parseBulkStudentLine(string $rawLine): ?array
+{
+    $line = trim($rawLine);
+    if ($line === '') {
+        return null;
+    }
+
+    // Strip optional list numbering at the start like "1. " or "1) " or "- " (but keep IDs like "2026-0001")
+    $line = (string)preg_replace('/^(?:\d{1,3}[\.\)]\s+|[-•*]\s+)/u', '', $line);
+    $line = trim($line);
+    if ($line === '') {
+        return null;
+    }
+
+    $studentNo = '';
+    $namePart = $line;
+
+    // Check for pipe, tab, or semicolon separator first: "2026-0001 | Dela Cruz, Juan M."
+    if (preg_match('/^([^\|\t;]+)[\|\t;]+(.+)$/u', $line, $m)) {
+        $firstCol = trim($m[1]);
+        $restCol = trim($m[2]);
+        if (preg_match('/\d/', $firstCol) && strlen($firstCol) <= 30) {
+            $studentNo = $firstCol;
+            $namePart = $restCol;
+        }
+    } elseif (substr_count($line, ',') >= 2) {
+        // Check if first comma-separated token is a Student ID: "2026-0001, Dela Cruz, Juan M."
+        $parts = array_map('trim', explode(',', $line));
+        if (preg_match('/\d/', $parts[0]) && strlen($parts[0]) <= 30) {
+            $studentNo = array_shift($parts);
+            $namePart = implode(', ', $parts);
+        }
+    }
+
+    $firstName = '';
+    $middleName = '';
+    $lastName = '';
+
+    if (strpos($namePart, ',') !== false) {
+        // Format: "Last Name, First Name [Middle]" or "Last Name, First Name, Middle Name"
+        $commaParts = array_map('trim', explode(',', $namePart));
+        $lastName = $commaParts[0] ?? '';
+        $givenPart = $commaParts[1] ?? '';
+        $extraMiddle = $commaParts[2] ?? '';
+
+        if ($extraMiddle !== '') {
+            $firstName = $givenPart;
+            $middleName = $extraMiddle;
+        } else {
+            $words = preg_split('/\s+/u', $givenPart, -1, PREG_SPLIT_NO_EMPTY);
+            if (count($words) >= 2) {
+                $lastToken = $words[count($words) - 1];
+                // If last token is a middle initial like "M." or "M"
+                if (preg_match('/^[A-Za-z]\.?$/u', $lastToken)) {
+                    $middleName = rtrim($lastToken, '.') . '.';
+                    array_pop($words);
+                }
+            }
+            $firstName = implode(' ', $words);
+        }
+    } else {
+        // Format: "First Name [Middle] Last Name" (e.g. "Juan M. Dela Cruz" or "Juan Dela Cruz")
+        $words = preg_split('/\s+/u', $namePart, -1, PREG_SPLIT_NO_EMPTY);
+        $count = count($words);
+        if ($count === 1) {
+            $firstName = $words[0];
+            $lastName = $words[0];
+        } elseif ($count === 2) {
+            $firstName = $words[0];
+            $lastName = $words[1];
+        } else {
+            // Check for compound last names (e.g., Dela Cruz, De Guzman, Del Rosario, San Juan, Sta. Maria, Sto. Tomas)
+            $compoundPrefixes = ['dela', 'de', 'del', 'delos', 'san', 'sta', 'sta.', 'sto', 'sto.', 'da', 'van', 'von'];
+            $secondLast = strtolower($words[$count - 2]);
+            $thirdLast = $count >= 4 ? strtolower($words[$count - 3]) : '';
+
+            if ($count >= 4 && $thirdLast === 'de' && $secondLast === 'la') {
+                $lastName = $words[$count - 3] . ' ' . $words[$count - 2] . ' ' . $words[$count - 1];
+                $remaining = array_slice($words, 0, $count - 3);
+            } elseif (in_array($secondLast, $compoundPrefixes, true) && !preg_match('/^[A-Za-z]\.$/u', $words[$count - 2])) {
+                $lastName = $words[$count - 2] . ' ' . $words[$count - 1];
+                $remaining = array_slice($words, 0, $count - 2);
+            } else {
+                $lastName = $words[$count - 1];
+                $remaining = array_slice($words, 0, $count - 1);
+            }
+
+            if (count($remaining) >= 2) {
+                $remLast = $remaining[count($remaining) - 1];
+                if (preg_match('/^[A-Za-z]\.?$/u', $remLast)) {
+                    $middleName = rtrim($remLast, '.') . '.';
+                    array_pop($remaining);
+                }
+            }
+            $firstName = implode(' ', $remaining);
+        }
+    }
+
+    if ($firstName === '' || $lastName === '') {
+        return null;
+    }
+
+    return [
+        'student_no'  => $studentNo,
+        'first_name'  => $firstName,
+        'middle_name' => $middleName,
+        'last_name'   => $lastName,
+    ];
+}
+
 try {
     switch ($action) {
         case 'get_all':
@@ -526,6 +644,91 @@ try {
             respond(true, $msg, fetchSystemState($pdo));
             break;
 
+        case 'bulk_save_students':
+            $rawLines = (string)($input['students_text'] ?? '');
+            $sectionId = (int)($input['section_id'] ?? 0);
+            $status = trim((string)($input['status'] ?? 'Active'));
+            if (!in_array($status, ['Active', 'Irregular', 'Inactive'], true)) {
+                $status = 'Active';
+            }
+
+            if ($sectionId <= 0) {
+                respond(false, 'Please select a Section for the students.', [], 422);
+            }
+
+            $secStmt = $pdo->prepare("SELECT id, section_name, year_level FROM sections WHERE id = ?");
+            $secStmt->execute([$sectionId]);
+            $sectionRow = $secStmt->fetch();
+            if (!$sectionRow) {
+                respond(false, 'Selected section does not exist.', [], 404);
+            }
+            $yearLevel = $sectionRow['year_level'];
+
+            $lines = preg_split('/\r\n|\r|\n/', $rawLines);
+            $parsedStudents = [];
+            foreach ($lines as $idx => $line) {
+                if (trim($line) === '') {
+                    continue;
+                }
+                $parsed = parseBulkStudentLine($line);
+                if ($parsed === null) {
+                    respond(false, 'Could not parse student name on line ' . ($idx + 1) . ': "' . trim($line) . '". Please enter a valid name.', [], 422);
+                }
+                $parsedStudents[] = $parsed;
+            }
+
+            if (empty($parsedStudents)) {
+                respond(false, 'Please enter at least one student name (one student per line).', [], 422);
+            }
+
+            $pdo->beginTransaction();
+            $insertStmt = $pdo->prepare("
+                INSERT INTO students (student_no, first_name, middle_name, last_name, full_name, year_level, section_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $checkDupNo = $pdo->prepare("SELECT id FROM students WHERE student_no = ?");
+
+            $addedCount = 0;
+            foreach ($parsedStudents as $st) {
+                $studentNo = trim($st['student_no']);
+                if ($studentNo === '') {
+                    $studentNo = generateStudentNo($pdo);
+                } else {
+                    $checkDupNo->execute([$studentNo]);
+                    if ($checkDupNo->fetch()) {
+                        $pdo->rollBack();
+                        respond(false, "Student ID '{$studentNo}' already exists. Leave Student ID blank to auto-generate.", [], 409);
+                    }
+                }
+
+                $firstName = $st['first_name'];
+                $middleName = $st['middle_name'];
+                $lastName = $st['last_name'];
+                $middleInitial = $middleName !== '' ? ' ' . $middleName : '';
+                $fullName = "{$lastName}, {$firstName}{$middleInitial}";
+
+                $insertStmt->execute([
+                    $studentNo,
+                    $firstName,
+                    $middleName !== '' ? $middleName : null,
+                    $lastName,
+                    $fullName,
+                    $yearLevel,
+                    $sectionId,
+                    $status,
+                ]);
+                $addedCount++;
+            }
+
+            $pdo->commit();
+            $plural = $addedCount === 1 ? '' : 's';
+            respond(
+                true,
+                "Successfully enrolled {$addedCount} student{$plural} into {$sectionRow['section_name']} ({$yearLevel}).",
+                fetchSystemState($pdo)
+            );
+            break;
+
         case 'delete_student':
             $id = (int)($input['id'] ?? 0);
             if ($id <= 0) {
@@ -646,22 +849,37 @@ try {
             // Assign all 8 subjects (28 units total) to BSIT 1-A
             $subjectCodes8 = ['SUBJ 101', 'SUBJ 102', 'SUBJ 103', 'SUBJ 104', 'SUBJ 105', 'SUBJ 106', 'SUBJ 107', 'SUBJ 108'];
             $assStmt = $pdo->prepare("INSERT IGNORE INTO section_subjects (section_id, subject_id, schedule, instructor) VALUES (?, ?, ?, ?)");
-            if (isset($secMap['BSIT 1-A'])) {
-                $sec1AId = (int)$secMap['BSIT 1-A']['id'];
-                foreach ($subjectCodes8 as $idx => $code) {
-                    if (isset($subMap[$code])) {
-                        $inst = $idx % 2 === 0 ? 'Prof. Maria Santos' : 'Prof. Carlos Reyes';
-                        $assStmt->execute([$sec1AId, $subMap[$code], 'MWF', $inst]);
+            foreach (['BSIT 1-A', 'BSIT 1-B'] as $secNameSeed) {
+                if (isset($secMap[$secNameSeed])) {
+                    $seedSecId = (int)$secMap[$secNameSeed]['id'];
+                    foreach ($subjectCodes8 as $idx => $code) {
+                        if (isset($subMap[$code])) {
+                            $inst = $idx % 2 === 0 ? 'Prof. Maria Santos' : 'Prof. Carlos Reyes';
+                            $sched = $secNameSeed === 'BSIT 1-A' ? 'MWF' : 'TTH';
+                            $assStmt->execute([$seedSecId, $subMap[$code], $sched, $inst]);
+                        }
                     }
                 }
             }
 
             $demoStudents = [
-                ['2026-0001', 'Angela', 'R.', 'Villanueva', 'BSIT 1-A', [95, 94, 96, 93, 95, 94, 98, 95]], // Avg ~94.68, min 93 -> QUALIFIED
-                ['2026-0002', 'Juan', 'M.', 'Dela Cruz', 'BSIT 1-A', [92, 91, 90, 93, 91, 90, 95, 92]],   // Avg ~91.61, min 90 -> QUALIFIED
-                ['2026-0003', 'Sophia', 'L.', 'Bautista', 'BSIT 1-A', [91, 90, 89, 92, 90, 88, 94, 90]],  // Avg ~90.29, min 88 -> QUALIFIED
-                ['2026-0004', 'Mark Anthony', 'S.', 'Mendoza', 'BSIT 1-A', [96, 95, 94, 83, 94, 92, 95, 93]], // Avg ~92.25 (>=90), BUT has 83 (<85) -> NOT QUALIFIED (below 85 rule)
-                ['2026-0005', 'Gabriel', 'T.', 'Soriano', 'BSIT 1-A', [88, 87, 89, 86, 88, 87, 90, 88]],  // Min 86 (>=85), but Avg ~87.68 (<90) -> NOT QUALIFIED
+                // 12 Students in BSIT 1-A (demonstrates 10 entries per page default + pagination)
+                ['2026-0001', 'Angela', 'R.', 'Villanueva', 'BSIT 1-A', [95, 94, 96, 93, 95, 94, 98, 95]],      // Avg ~94.68, min 93 -> QUALIFIED
+                ['2026-0002', 'Juan', 'M.', 'Dela Cruz', 'BSIT 1-A', [92, 91, 90, 93, 91, 90, 95, 92]],         // Avg ~91.61, min 90 -> QUALIFIED
+                ['2026-0003', 'Sophia', 'L.', 'Bautista', 'BSIT 1-A', [91, 90, 89, 92, 90, 88, 94, 90]],        // Avg ~90.29, min 88 -> QUALIFIED
+                ['2026-0004', 'Mark Anthony', 'S.', 'Mendoza', 'BSIT 1-A', [96, 95, 94, 83, 94, 92, 95, 93]],   // Avg ~92.25 (>=90), BUT has 83 (<85) -> PASSED (below 85 honor rule)
+                ['2026-0005', 'Gabriel', 'T.', 'Soriano', 'BSIT 1-A', [88, 87, 89, 86, 88, 87, 90, 88]],        // Min 86 (>=85), Avg ~87.68 -> PASSED
+                ['2026-0006', 'Alex', 'D.', 'Cruz', 'BSIT 1-A', [64, 62, 68, 60, 65, 66, 72, 63]],              // Avg ~64.39 (<75) -> FAILED
+                ['2026-0007', 'Camille', 'P.', 'Navarro', 'BSIT 1-A', [93, 92, 91, 90, 92, 91, 95, 93]],        // QUALIFIED
+                ['2026-0008', 'John', 'A.', 'Reyes', 'BSIT 1-A', [78, 79, 77, 80, 78, 76, 82, 79]],             // Avg ~78.32 -> PASSED
+                ['2026-0009', 'Bea', 'C.', 'Aquino', 'BSIT 1-A', [85, 86, 84, 87, 85, 86, 88, 85]],             // PASSED
+                ['2026-0010', 'Christian', 'V.', 'Ramos', 'BSIT 1-A', [82, 81, 83, 80, 82, 84, 85, 81]],        // PASSED
+                ['2026-0011', 'Patricia', 'G.', 'Lim', 'BSIT 1-A', [94, 93, 92, 95, 93, 92, 96, 94]],           // QUALIFIED (Page 2 on 10-entry view)
+                ['2026-0012', 'Paolo', 'E.', 'Garcia', 'BSIT 1-A', [70, 72, 68, 74, 71, 69, 75, 70]],           // FAILED (Page 2 on 10-entry view)
+                // 3 Students in BSIT 1-B (demonstrates switching section pills on dashboard)
+                ['2026-0101', 'Maria', 'K.', 'Santos', 'BSIT 1-B', [94, 95, 93, 94, 92, 94, 96, 95]],           // QUALIFIED
+                ['2026-0102', 'Daniel', 'B.', 'Padilla', 'BSIT 1-B', [84, 85, 83, 86, 84, 82, 88, 85]],         // PASSED
+                ['2026-0103', 'Erica', 'N.', 'Fernandez', 'BSIT 1-B', [91, 92, 90, 91, 89, 90, 93, 91]],        // QUALIFIED
             ];
             $stuStmt = $pdo->prepare("
                 INSERT INTO students (student_no, first_name, middle_name, last_name, full_name, year_level, section_id, status)
@@ -670,27 +888,29 @@ try {
             ");
             $gradeStmt = $pdo->prepare("
                 INSERT INTO student_grades (student_id, section_id, subject_id, quarter, grade, remarks)
-                VALUES (?, ?, ?, 'Q1', ?, 'Passed')
-                ON DUPLICATE KEY UPDATE grade = VALUES(grade)
+                VALUES (?, ?, ?, 'Q1', ?, ?)
+                ON DUPLICATE KEY UPDATE grade = VALUES(grade), remarks = VALUES(remarks)
             ");
 
-            if (isset($secMap['BSIT 1-A'])) {
-                $sec1A = $secMap['BSIT 1-A'];
-                $sec1AId = (int)$sec1A['id'];
+            foreach ($demoStudents as [$stNo, $fn, $mn, $ln, $sName, $gradesArr]) {
+                if (!isset($secMap[$sName])) {
+                    continue;
+                }
+                $targetSec = $secMap[$sName];
+                $targetSecId = (int)$targetSec['id'];
+                $full = "{$ln}, {$fn}" . ($mn ? " {$mn}" : '');
+                $stuStmt->execute([$stNo, $fn, $mn, $ln, $full, $targetSec['year_level'], $targetSecId]);
 
-                foreach ($demoStudents as [$stNo, $fn, $mn, $ln, $sName, $gradesArr]) {
-                    $full = "{$ln}, {$fn}" . ($mn ? " {$mn}" : '');
-                    $stuStmt->execute([$stNo, $fn, $mn, $ln, $full, $sec1A['year_level'], $sec1AId]);
+                $findStu = $pdo->prepare("SELECT id FROM students WHERE student_no = ?");
+                $findStu->execute([$stNo]);
+                $stuId = (int)$findStu->fetchColumn();
 
-                    $findStu = $pdo->prepare("SELECT id FROM students WHERE student_no = ?");
-                    $findStu->execute([$stNo]);
-                    $stuId = (int)$findStu->fetchColumn();
-
-                    if ($stuId > 0) {
-                        foreach ($subjectCodes8 as $i => $code) {
-                            if (isset($subMap[$code], $gradesArr[$i])) {
-                                $gradeStmt->execute([$stuId, $sec1AId, $subMap[$code], $gradesArr[$i]]);
-                            }
+                if ($stuId > 0) {
+                    foreach ($subjectCodes8 as $i => $code) {
+                        if (isset($subMap[$code], $gradesArr[$i])) {
+                            $gVal = (float)$gradesArr[$i];
+                            $rem = $gVal >= 75 ? 'Passed' : 'Failed';
+                            $gradeStmt->execute([$stuId, $targetSecId, $subMap[$code], $gVal, $rem]);
                         }
                     }
                 }

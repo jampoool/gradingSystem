@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
-define('DB_PASS', 'root');
+define('DB_PASS', '');
 define('DB_NAME', 'gradingsystem');
 
 function getDBConnection(): PDO
@@ -37,6 +37,36 @@ function getDBConnection(): PDO
             'message' => 'Database connection failed: ' . $e->getMessage(),
         ]);
         exit;
+    }
+}
+
+function getDatabaseStatus(): array
+{
+    try {
+        $serverDsn = 'mysql:host=' . DB_HOST . ';charset=utf8mb4';
+        $options = [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ];
+
+        $pdo = new PDO($serverDsn, DB_USER, DB_PASS, $options);
+        $pdo->exec('CREATE DATABASE IF NOT EXISTS `' . DB_NAME . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+        $pdo->exec('USE `' . DB_NAME . '`');
+
+        ensureSchema($pdo);
+
+        return [
+            'connected' => true,
+            'database'  => DB_NAME,
+            'error'     => null,
+        ];
+    } catch (PDOException $e) {
+        return [
+            'connected' => false,
+            'database'  => DB_NAME,
+            'error'     => $e->getMessage(),
+        ];
     }
 }
 
@@ -105,4 +135,3 @@ function ensureSchema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
 }
-
