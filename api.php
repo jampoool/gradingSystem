@@ -37,9 +37,21 @@ function respond(bool $success, string $message, array $data = [], int $status =
     exit;
 }
 
+function normalizeGender(?string $raw, string $fallback = 'Female'): string
+{
+    $val = strtolower(trim((string)$raw));
+    if (in_array($val, ['male', 'm', 'boy', 'boys'], true)) {
+        return 'Male';
+    }
+    if (in_array($val, ['female', 'f', 'girl', 'girls'], true)) {
+        return 'Female';
+    }
+    return $fallback === 'Male' ? 'Male' : 'Female';
+}
+
 function fetchSystemState(PDO $pdo): array
 {
-    // 1. Fetch Sections
+    // 1. Fetch Sections (with Female & Male student counts)
     $sectionsStmt = $pdo->query("
         SELECT 
             s.id,
@@ -47,7 +59,9 @@ function fetchSystemState(PDO $pdo): array
             s.year_level,
             s.adviser,
             s.created_at,
-            COUNT(DISTINCT st.id) AS student_count
+            COUNT(DISTINCT st.id) AS student_count,
+            COALESCE(SUM(CASE WHEN st.gender = 'Female' THEN 1 ELSE 0 END), 0) AS female_count,
+            COALESCE(SUM(CASE WHEN st.gender = 'Male' THEN 1 ELSE 0 END), 0) AS male_count
         FROM sections s
         LEFT JOIN students st ON st.section_id = s.id
         GROUP BY s.id
@@ -80,6 +94,7 @@ function fetchSystemState(PDO $pdo): array
             ss.subject_id,
             ss.schedule,
             ss.instructor,
+            ss.sort_order,
             ss.assigned_at,
             sub.subject_code,
             sub.subject_name,
@@ -89,7 +104,7 @@ function fetchSystemState(PDO $pdo): array
         FROM section_subjects ss
         INNER JOIN subjects sub ON sub.id = ss.subject_id
         INNER JOIN sections sec ON sec.id = ss.section_id
-        ORDER BY ss.id ASC, sub.subject_code ASC
+        ORDER BY ss.sort_order ASC, ss.id ASC, sub.subject_code ASC
     ");
     $assignments = $assignmentsStmt->fetchAll();
 
@@ -107,6 +122,7 @@ function fetchSystemState(PDO $pdo): array
             'units'         => (float)$row['units'],
             'schedule'      => $row['schedule'] ?? '',
             'instructor'    => $row['instructor'] ?? '',
+            'sort_order'    => (int)($row['sort_order'] ?? 0),
         ];
 
         $subjectSectionsMap[$subId][] = [
@@ -122,6 +138,8 @@ function fetchSystemState(PDO $pdo): array
     foreach ($sections as &$sec) {
         $sec['id'] = (int)$sec['id'];
         $sec['student_count'] = (int)$sec['student_count'];
+        $sec['female_count'] = (int)($sec['female_count'] ?? 0);
+        $sec['male_count'] = (int)($sec['male_count'] ?? 0);
         $sec['assigned_subjects'] = $sectionSubjectsMap[$sec['id']] ?? [];
         $sec['subject_count'] = count($sec['assigned_subjects']);
         $totalUnits = 0.0;
@@ -140,7 +158,7 @@ function fetchSystemState(PDO $pdo): array
     }
     unset($sub);
 
-    // 4. Fetch Students
+    // 4. Fetch Students (Ordered by Female first, then Male, then alphabetically by last_name, first_name)
     $studentsStmt = $pdo->query("
         SELECT 
             st.id,
@@ -149,6 +167,7 @@ function fetchSystemState(PDO $pdo): array
             st.middle_name,
             st.last_name,
             st.full_name,
+            st.gender,
             st.year_level,
             st.section_id,
             st.status,
@@ -156,7 +175,7 @@ function fetchSystemState(PDO $pdo): array
             sec.section_name
         FROM students st
         INNER JOIN sections sec ON sec.id = st.section_id
-        ORDER BY st.last_name ASC, st.first_name ASC
+        ORDER BY FIELD(st.gender, 'Female', 'Male'), st.last_name ASC, st.first_name ASC
     ");
     $students = $studentsStmt->fetchAll();
 
@@ -183,9 +202,17 @@ function fetchSystemState(PDO $pdo): array
         $gradesByStudent[$stId][$subId][$qtr] = (float)$grow['grade'];
     }
 
+    $totalFemale = 0;
+    $totalMale = 0;
     foreach ($students as &$st) {
         $st['id'] = (int)$st['id'];
         $st['section_id'] = (int)$st['section_id'];
+        $st['gender'] = normalizeGender($st['gender'] ?? 'Female');
+        if ($st['gender'] === 'Male') {
+            $totalMale++;
+        } else {
+            $totalFemale++;
+        }
         $st['assigned_subjects'] = $sectionSubjectsMap[$st['section_id']] ?? [];
         $st['grades'] = $gradesByStudent[$st['id']] ?? new stdClass();
     }
@@ -197,6 +224,8 @@ function fetchSystemState(PDO $pdo): array
         'students' => $students,
         'stats'    => [
             'total_students'    => count($students),
+            'total_female'      => $totalFemale,
+            'total_male'        => $totalMale,
             'total_sections'    => count($sections),
             'total_subjects'    => count($subjects),
             'total_assignments' => count($assignments),
@@ -232,14 +261,31 @@ function generateStudentNo(PDO $pdo): string
 }
 
 /**
+ * Checks if a line is a gender group header like "Female:", "FEMALE", "Male:", "Boys:", "Girls:"
+ */
+function detectBulkGenderHeader(string $rawLine): ?string
+{
+    $clean = trim($rawLine, " \t\n\r\0\x0B:-—•*#[]()");
+    $lower = strtolower($clean);
+    if (in_array($lower, ['female', 'females', 'girl', 'girls', 'female students'], true)) {
+        return 'Female';
+    }
+    if (in_array($lower, ['male', 'males', 'boy', 'boys', 'male students'], true)) {
+        return 'Male';
+    }
+    return null;
+}
+
+/**
  * Parses a single line from Bulk Student Add into:
- * ['student_no' => string, 'first_name' => string, 'middle_name' => string, 'last_name' => string]
+ * ['student_no' => string, 'first_name' => string, 'middle_name' => string, 'last_name' => string, 'gender' => 'Female'|'Male']
  * Supports:
  * - "Last Name, First Name [Middle]" (e.g. "Dela Cruz, Juan M.")
  * - "First Name [Middle] Last Name" (e.g. "Juan M. Dela Cruz" or "Juan Dela Cruz")
- * - Optional leading Student ID separated by |, tab, ;, or comma (e.g. "2026-0010 | Dela Cruz, Juan M." or "2026-0010, Dela Cruz, Juan")
+ * - Optional leading Student ID separated by |, tab, ;, or comma (e.g. "2026-0010 | Dela Cruz, Juan M.")
+ * - Optional trailing gender tag like "| Female", "| Male", "| F", "| M", "(Female)", "(Male)", "[F]", "[M]"
  */
-function parseBulkStudentLine(string $rawLine): ?array
+function parseBulkStudentLine(string $rawLine, string $defaultGender = 'Female'): ?array
 {
     $line = trim($rawLine);
     if ($line === '') {
@@ -251,6 +297,21 @@ function parseBulkStudentLine(string $rawLine): ?array
     $line = trim($line);
     if ($line === '') {
         return null;
+    }
+
+    $gender = normalizeGender($defaultGender);
+
+    // Check for trailing gender marker such as "| Female", "| Male", "| F", "| M", "[Female]", "(M)", etc.
+    if (preg_match('/^(.*?)(?:[\|\t;,-]+\s*|\s+[\(\[])(female|male|f|m|girl|boy)[\)\]]?\s*$/iu', $line, $gm)) {
+        $candidateRest = trim($gm[1]);
+        $genderToken = strtolower(trim($gm[2]));
+        // Make sure we didn't accidentally strip a middle initial like "Dela Cruz, Juan M" where "M" is after a space without brackets/pipes
+        $fullMatch = $gm[0];
+        $hasExplicitDelimiter = (bool)preg_match('/(?:[\|\t;]\s*(?:female|male|f|m)|[\(\[](?:female|male|f|m)[\)\]]|(?:[\|\t;,-]+|\s+)(?:female|male))\s*$/iu', $fullMatch);
+        if ($hasExplicitDelimiter && $candidateRest !== '') {
+            $gender = normalizeGender($genderToken, $gender);
+            $line = $candidateRest;
+        }
     }
 
     $studentNo = '';
@@ -346,6 +407,7 @@ function parseBulkStudentLine(string $rawLine): ?array
         'first_name'  => $firstName,
         'middle_name' => $middleName,
         'last_name'   => $lastName,
+        'gender'      => $gender,
     ];
 }
 
@@ -520,17 +582,22 @@ try {
             $del = $pdo->prepare("DELETE FROM section_subjects WHERE section_id = ?");
             $del->execute([$sectionId]);
 
-            $ins = $pdo->prepare("INSERT INTO section_subjects (section_id, subject_id, schedule, instructor) VALUES (?, ?, ?, ?)");
+            $ins = $pdo->prepare("INSERT INTO section_subjects (section_id, subject_id, schedule, instructor, sort_order) VALUES (?, ?, ?, ?, ?)");
             $count = 0;
             if (is_array($assignments)) {
                 $seen = [];
+                $orderIndex = 1;
                 foreach ($assignments as $item) {
                     $subId = is_array($item) ? (int)($item['subject_id'] ?? 0) : (int)$item;
                     if ($subId > 0 && !isset($seen[$subId])) {
                         $seen[$subId] = true;
                         $schedule = is_array($item) && !empty($item['schedule']) ? trim((string)$item['schedule']) : null;
                         $instructor = is_array($item) && !empty($item['instructor']) ? trim((string)$item['instructor']) : null;
-                        $ins->execute([$sectionId, $subId, $schedule, $instructor]);
+                        $customOrder = is_array($item) && isset($item['sort_order']) && (int)$item['sort_order'] > 0
+                            ? (int)$item['sort_order']
+                            : $orderIndex;
+                        $ins->execute([$sectionId, $subId, $schedule, $instructor, $customOrder]);
+                        $orderIndex++;
                         $count++;
                     }
                 }
@@ -542,6 +609,35 @@ try {
                 "Updated subject assignments for {$sec['section_name']} ({$count} subject" . ($count === 1 ? '' : 's') . " assigned).",
                 fetchSystemState($pdo)
             );
+            break;
+
+        case 'reorder_section_subjects':
+            $sectionId = (int)($input['section_id'] ?? 0);
+            $subjectIds = $input['subject_ids'] ?? [];
+            if ($sectionId <= 0 || !is_array($subjectIds) || empty($subjectIds)) {
+                respond(false, 'Please provide a valid section and subject order list.', [], 422);
+            }
+
+            $secCheck = $pdo->prepare("SELECT section_name FROM sections WHERE id = ?");
+            $secCheck->execute([$sectionId]);
+            $secRow = $secCheck->fetch();
+            if (!$secRow) {
+                respond(false, 'Section not found.', [], 404);
+            }
+
+            $upd = $pdo->prepare("UPDATE section_subjects SET sort_order = ? WHERE section_id = ? AND subject_id = ?");
+            $pdo->beginTransaction();
+            $pos = 1;
+            foreach ($subjectIds as $sId) {
+                $sId = (int)$sId;
+                if ($sId > 0) {
+                    $upd->execute([$pos, $sectionId, $sId]);
+                    $pos++;
+                }
+            }
+            $pdo->commit();
+
+            respond(true, "Subject input order updated for {$secRow['section_name']}.", fetchSystemState($pdo));
             break;
 
         case 'unassign_single_subject':
@@ -562,6 +658,7 @@ try {
             $firstName = trim((string)($input['first_name'] ?? ''));
             $middleName = trim((string)($input['middle_name'] ?? ''));
             $lastName = trim((string)($input['last_name'] ?? ''));
+            $gender = normalizeGender((string)($input['gender'] ?? 'Female'));
             $sectionId = (int)($input['section_id'] ?? 0);
             $status = trim((string)($input['status'] ?? 'Active'));
             if (!in_array($status, ['Active', 'Irregular', 'Inactive'], true)) {
@@ -605,7 +702,7 @@ try {
             if ($id) {
                 $stmt = $pdo->prepare("
                     UPDATE students 
-                    SET student_no = ?, first_name = ?, middle_name = ?, last_name = ?, full_name = ?, year_level = ?, section_id = ?, status = ?
+                    SET student_no = ?, first_name = ?, middle_name = ?, last_name = ?, full_name = ?, gender = ?, year_level = ?, section_id = ?, status = ?
                     WHERE id = ?
                 ");
                 $stmt->execute([
@@ -614,6 +711,7 @@ try {
                     $middleName !== '' ? $middleName : null,
                     $lastName,
                     $fullName,
+                    $gender,
                     $yearLevel,
                     $sectionId,
                     $status,
@@ -622,11 +720,11 @@ try {
                 // Also keep student_grades section_id synced if student moved sections
                 $syncGradesSec = $pdo->prepare("UPDATE student_grades SET section_id = ? WHERE student_id = ?");
                 $syncGradesSec->execute([$sectionId, $id]);
-                $msg = "Student '{$fullName}' updated successfully.";
+                $msg = "Student '{$fullName}' ({$gender}) updated successfully.";
             } else {
                 $stmt = $pdo->prepare("
-                    INSERT INTO students (student_no, first_name, middle_name, last_name, full_name, year_level, section_id, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO students (student_no, first_name, middle_name, last_name, full_name, gender, year_level, section_id, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $stmt->execute([
                     $studentNo,
@@ -634,11 +732,12 @@ try {
                     $middleName !== '' ? $middleName : null,
                     $lastName,
                     $fullName,
+                    $gender,
                     $yearLevel,
                     $sectionId,
                     $status,
                 ]);
-                $msg = "Student '{$fullName}' added to {$sectionRow['section_name']} ({$yearLevel}).";
+                $msg = "Student '{$fullName}' ({$gender}) added to {$sectionRow['section_name']} ({$yearLevel}).";
             }
 
             respond(true, $msg, fetchSystemState($pdo));
@@ -647,6 +746,7 @@ try {
         case 'bulk_save_students':
             $rawLines = (string)($input['students_text'] ?? '');
             $sectionId = (int)($input['section_id'] ?? 0);
+            $defaultGender = normalizeGender((string)($input['gender'] ?? 'Female'));
             $status = trim((string)($input['status'] ?? 'Active'));
             if (!in_array($status, ['Active', 'Irregular', 'Inactive'], true)) {
                 $status = 'Active';
@@ -666,11 +766,17 @@ try {
 
             $lines = preg_split('/\r\n|\r|\n/', $rawLines);
             $parsedStudents = [];
+            $currentGenderContext = $defaultGender;
             foreach ($lines as $idx => $line) {
                 if (trim($line) === '') {
                     continue;
                 }
-                $parsed = parseBulkStudentLine($line);
+                $headerGender = detectBulkGenderHeader($line);
+                if ($headerGender !== null) {
+                    $currentGenderContext = $headerGender;
+                    continue;
+                }
+                $parsed = parseBulkStudentLine($line, $currentGenderContext);
                 if ($parsed === null) {
                     respond(false, 'Could not parse student name on line ' . ($idx + 1) . ': "' . trim($line) . '". Please enter a valid name.', [], 422);
                 }
@@ -683,12 +789,14 @@ try {
 
             $pdo->beginTransaction();
             $insertStmt = $pdo->prepare("
-                INSERT INTO students (student_no, first_name, middle_name, last_name, full_name, year_level, section_id, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO students (student_no, first_name, middle_name, last_name, full_name, gender, year_level, section_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $checkDupNo = $pdo->prepare("SELECT id FROM students WHERE student_no = ?");
 
             $addedCount = 0;
+            $addedFemale = 0;
+            $addedMale = 0;
             foreach ($parsedStudents as $st) {
                 $studentNo = trim($st['student_no']);
                 if ($studentNo === '') {
@@ -704,6 +812,7 @@ try {
                 $firstName = $st['first_name'];
                 $middleName = $st['middle_name'];
                 $lastName = $st['last_name'];
+                $stGender = normalizeGender($st['gender'] ?? $defaultGender);
                 $middleInitial = $middleName !== '' ? ' ' . $middleName : '';
                 $fullName = "{$lastName}, {$firstName}{$middleInitial}";
 
@@ -713,18 +822,24 @@ try {
                     $middleName !== '' ? $middleName : null,
                     $lastName,
                     $fullName,
+                    $stGender,
                     $yearLevel,
                     $sectionId,
                     $status,
                 ]);
                 $addedCount++;
+                if ($stGender === 'Male') {
+                    $addedMale++;
+                } else {
+                    $addedFemale++;
+                }
             }
 
             $pdo->commit();
             $plural = $addedCount === 1 ? '' : 's';
             respond(
                 true,
-                "Successfully enrolled {$addedCount} student{$plural} into {$sectionRow['section_name']} ({$yearLevel}).",
+                "Successfully enrolled {$addedCount} student{$plural} ({$addedFemale} Female, {$addedMale} Male) into {$sectionRow['section_name']} ({$yearLevel}).",
                 fetchSystemState($pdo)
             );
             break;
@@ -846,7 +961,7 @@ try {
                 $subMap[$r['subject_code']] = (int)$r['id'];
             }
 
-            // Assign all 8 subjects (28 units total) to BSIT 1-A
+            // Assign all 8 subjects (28 units total) to BSIT 1-A and BSIT 1-B
             $subjectCodes8 = ['SUBJ 101', 'SUBJ 102', 'SUBJ 103', 'SUBJ 104', 'SUBJ 105', 'SUBJ 106', 'SUBJ 107', 'SUBJ 108'];
             $assStmt = $pdo->prepare("INSERT IGNORE INTO section_subjects (section_id, subject_id, schedule, instructor) VALUES (?, ?, ?, ?)");
             foreach (['BSIT 1-A', 'BSIT 1-B'] as $secNameSeed) {
@@ -863,28 +978,28 @@ try {
             }
 
             $demoStudents = [
-                // 12 Students in BSIT 1-A (demonstrates 10 entries per page default + pagination)
-                ['2026-0001', 'Angela', 'R.', 'Villanueva', 'BSIT 1-A', [95, 94, 96, 93, 95, 94, 98, 95]],      // Avg ~94.68, min 93 -> QUALIFIED
-                ['2026-0002', 'Juan', 'M.', 'Dela Cruz', 'BSIT 1-A', [92, 91, 90, 93, 91, 90, 95, 92]],         // Avg ~91.61, min 90 -> QUALIFIED
-                ['2026-0003', 'Sophia', 'L.', 'Bautista', 'BSIT 1-A', [91, 90, 89, 92, 90, 88, 94, 90]],        // Avg ~90.29, min 88 -> QUALIFIED
-                ['2026-0004', 'Mark Anthony', 'S.', 'Mendoza', 'BSIT 1-A', [96, 95, 94, 83, 94, 92, 95, 93]],   // Avg ~92.25 (>=90), BUT has 83 (<85) -> PASSED (below 85 honor rule)
-                ['2026-0005', 'Gabriel', 'T.', 'Soriano', 'BSIT 1-A', [88, 87, 89, 86, 88, 87, 90, 88]],        // Min 86 (>=85), Avg ~87.68 -> PASSED
-                ['2026-0006', 'Alex', 'D.', 'Cruz', 'BSIT 1-A', [64, 62, 68, 60, 65, 66, 72, 63]],              // Avg ~64.39 (<75) -> FAILED
-                ['2026-0007', 'Camille', 'P.', 'Navarro', 'BSIT 1-A', [93, 92, 91, 90, 92, 91, 95, 93]],        // QUALIFIED
-                ['2026-0008', 'John', 'A.', 'Reyes', 'BSIT 1-A', [78, 79, 77, 80, 78, 76, 82, 79]],             // Avg ~78.32 -> PASSED
-                ['2026-0009', 'Bea', 'C.', 'Aquino', 'BSIT 1-A', [85, 86, 84, 87, 85, 86, 88, 85]],             // PASSED
-                ['2026-0010', 'Christian', 'V.', 'Ramos', 'BSIT 1-A', [82, 81, 83, 80, 82, 84, 85, 81]],        // PASSED
-                ['2026-0011', 'Patricia', 'G.', 'Lim', 'BSIT 1-A', [94, 93, 92, 95, 93, 92, 96, 94]],           // QUALIFIED (Page 2 on 10-entry view)
-                ['2026-0012', 'Paolo', 'E.', 'Garcia', 'BSIT 1-A', [70, 72, 68, 74, 71, 69, 75, 70]],           // FAILED (Page 2 on 10-entry view)
-                // 3 Students in BSIT 1-B (demonstrates switching section pills on dashboard)
-                ['2026-0101', 'Maria', 'K.', 'Santos', 'BSIT 1-B', [94, 95, 93, 94, 92, 94, 96, 95]],           // QUALIFIED
-                ['2026-0102', 'Daniel', 'B.', 'Padilla', 'BSIT 1-B', [84, 85, 83, 86, 84, 82, 88, 85]],         // PASSED
-                ['2026-0103', 'Erica', 'N.', 'Fernandez', 'BSIT 1-B', [91, 92, 90, 91, 89, 90, 93, 91]],        // QUALIFIED
+                // 12 Students in BSIT 1-A (5 Female, 7 Male)
+                ['2026-0001', 'Angela', 'R.', 'Villanueva', 'Female', 'BSIT 1-A', [95, 94, 96, 93, 95, 94, 98, 95]],      // Avg ~94.68, min 93 -> QUALIFIED
+                ['2026-0002', 'Juan', 'M.', 'Dela Cruz', 'Male', 'BSIT 1-A', [92, 91, 90, 93, 91, 90, 95, 92]],           // Avg ~91.61, min 90 -> QUALIFIED
+                ['2026-0003', 'Sophia', 'L.', 'Bautista', 'Female', 'BSIT 1-A', [91, 90, 89, 92, 90, 88, 94, 90]],        // Avg ~90.29, min 88 -> QUALIFIED
+                ['2026-0004', 'Mark Anthony', 'S.', 'Mendoza', 'Male', 'BSIT 1-A', [96, 95, 94, 83, 94, 92, 95, 93]],     // Avg ~92.25 (>=90), BUT has 83 (<85) -> PASSED (below 85 honor rule)
+                ['2026-0005', 'Gabriel', 'T.', 'Soriano', 'Male', 'BSIT 1-A', [88, 87, 89, 86, 88, 87, 90, 88]],          // Min 86 (>=85), Avg ~87.68 -> PASSED
+                ['2026-0006', 'Alex', 'D.', 'Cruz', 'Male', 'BSIT 1-A', [64, 62, 68, 60, 65, 66, 72, 63]],                // Avg ~64.39 (<75) -> FAILED
+                ['2026-0007', 'Camille', 'P.', 'Navarro', 'Female', 'BSIT 1-A', [93, 92, 91, 90, 92, 91, 95, 93]],        // QUALIFIED
+                ['2026-0008', 'John', 'A.', 'Reyes', 'Male', 'BSIT 1-A', [78, 79, 77, 80, 78, 76, 82, 79]],               // Avg ~78.32 -> PASSED
+                ['2026-0009', 'Bea', 'C.', 'Aquino', 'Female', 'BSIT 1-A', [85, 86, 84, 87, 85, 86, 88, 85]],             // PASSED
+                ['2026-0010', 'Christian', 'V.', 'Ramos', 'Male', 'BSIT 1-A', [82, 81, 83, 80, 82, 84, 85, 81]],          // PASSED
+                ['2026-0011', 'Patricia', 'G.', 'Lim', 'Female', 'BSIT 1-A', [94, 93, 92, 95, 93, 92, 96, 94]],           // QUALIFIED
+                ['2026-0012', 'Paolo', 'E.', 'Garcia', 'Male', 'BSIT 1-A', [70, 72, 68, 74, 71, 69, 75, 70]],             // FAILED
+                // 3 Students in BSIT 1-B (2 Female, 1 Male)
+                ['2026-0101', 'Maria', 'K.', 'Santos', 'Female', 'BSIT 1-B', [94, 95, 93, 94, 92, 94, 96, 95]],           // QUALIFIED
+                ['2026-0102', 'Daniel', 'B.', 'Padilla', 'Male', 'BSIT 1-B', [84, 85, 83, 86, 84, 82, 88, 85]],           // PASSED
+                ['2026-0103', 'Erica', 'N.', 'Fernandez', 'Female', 'BSIT 1-B', [91, 92, 90, 91, 89, 90, 93, 91]],        // QUALIFIED
             ];
             $stuStmt = $pdo->prepare("
-                INSERT INTO students (student_no, first_name, middle_name, last_name, full_name, year_level, section_id, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'Active')
-                ON DUPLICATE KEY UPDATE section_id = VALUES(section_id), year_level = VALUES(year_level)
+                INSERT INTO students (student_no, first_name, middle_name, last_name, full_name, gender, year_level, section_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active')
+                ON DUPLICATE KEY UPDATE gender = VALUES(gender), section_id = VALUES(section_id), year_level = VALUES(year_level)
             ");
             $gradeStmt = $pdo->prepare("
                 INSERT INTO student_grades (student_id, section_id, subject_id, quarter, grade, remarks)
@@ -892,14 +1007,14 @@ try {
                 ON DUPLICATE KEY UPDATE grade = VALUES(grade), remarks = VALUES(remarks)
             ");
 
-            foreach ($demoStudents as [$stNo, $fn, $mn, $ln, $sName, $gradesArr]) {
+            foreach ($demoStudents as [$stNo, $fn, $mn, $ln, $genderVal, $sName, $gradesArr]) {
                 if (!isset($secMap[$sName])) {
                     continue;
                 }
                 $targetSec = $secMap[$sName];
                 $targetSecId = (int)$targetSec['id'];
                 $full = "{$ln}, {$fn}" . ($mn ? " {$mn}" : '');
-                $stuStmt->execute([$stNo, $fn, $mn, $ln, $full, $targetSec['year_level'], $targetSecId]);
+                $stuStmt->execute([$stNo, $fn, $mn, $ln, $full, $genderVal, $targetSec['year_level'], $targetSecId]);
 
                 $findStu = $pdo->prepare("SELECT id FROM students WHERE student_no = ?");
                 $findStu->execute([$stNo]);
@@ -917,7 +1032,7 @@ try {
             }
 
             $pdo->commit();
-            respond(true, 'Sample sections, 28-unit curriculum, students, and Q1 grades loaded.', fetchSystemState($pdo));
+            respond(true, 'Sample sections, 28-unit curriculum, Female/Male student rosters, and Q1 grades loaded.', fetchSystemState($pdo));
             break;
 
         default:

@@ -13,9 +13,20 @@ const App = (() => {
         passingGrade: 75.0,
         honorSubjectFloor: 85.0,
         honorAverage: 90.0,
+        honorAverageRoundFloor: 89.5, // 89.50 and above rounds to 90 for Honor qualification
         minValidGrade: 50.0,
         maxValidGrade: 100.0,
     };
+
+    /**
+     * Checks if a weighted average qualifies for the 90+ Honor Roll
+     * (Philippine Academic Standard: 89.50 and above rounds up to 90)
+     */
+    function meetsHonorAveragePolicy(avg) {
+        if (avg === null || avg === undefined || avg === '' || isNaN(Number(avg))) return false;
+        const num = Number(avg);
+        return Math.round(num) >= 90 || num >= (GRADING_POLICY.honorAverageRoundFloor - 0.0001);
+    }
 
     const state = {
         currentView: 'dashboard',
@@ -32,12 +43,15 @@ const App = (() => {
         activeAssignSectionId: null,
         assignDraftMap: {},
         returnToModalAfterCreate: null,
+        reorderSectionId: null,
+        reorderDraftList: [],
 
         // Dashboard Section Switcher & Student Entries Pagination state
         dashboardSectionId: null,
         dashboardPageSize: 10,
         dashboardCurrentPage: 1,
         dashboardStudentSearch: '',
+        dashboardGenderFilter: '',
 
         // Grading & Reports state
         gradingSectionId: null,
@@ -88,6 +102,53 @@ const App = (() => {
     function formatUnits(u) {
         const num = Number(u || 0);
         return Number.isInteger(num) ? String(num) : num.toFixed(1);
+    }
+
+    function normalizeGenderClient(gender) {
+        const g = String(gender || 'Female').trim().toLowerCase();
+        return g === 'male' || g === 'm' || g === 'boy' || g === 'boys' ? 'Male' : 'Female';
+    }
+
+    function genderBadgeHtml(gender, compact = false) {
+        const norm = normalizeGenderClient(gender);
+        if (norm === 'Male') {
+            return compact
+                ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]" title="Male">&#9794; M</span>`
+                : `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]"><span>&#9794;</span><span>Male</span></span>`;
+        }
+        return compact
+            ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]" title="Female">&#9792; F</span>`
+            : `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]"><span>&#9792;</span><span>Female</span></span>`;
+    }
+
+    function genderSectionHeaderRowHtml(gender, count, colSpan, subtitle = '') {
+        const norm = normalizeGenderClient(gender);
+        const isMale = norm === 'Male';
+        const bgClass = isMale
+            ? 'bg-[#EBF1F8]/90 border-y border-[#C5D5EA] text-[#2C4870]'
+            : 'bg-[#F5DFEB]/75 border-y border-[#E2B8CF] text-[#842D60]';
+        const pillClass = isMale
+            ? 'bg-[#2C4870] text-white'
+            : 'bg-[#842D60] text-white';
+        const symbol = isMale ? '&#9794;' : '&#9792;';
+        const label = isMale ? 'MALE STUDENTS' : 'FEMALE STUDENTS';
+
+        return `
+            <tr class="${bgClass}">
+                <td colspan="${colSpan}" class="py-2 px-3.5">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-extrabold uppercase tracking-wider ${pillClass}">
+                                <span>${symbol}</span>
+                                <span>${label}</span>
+                            </span>
+                            <span class="text-xs font-bold">(${count} student${count === 1 ? '' : 's'})</span>
+                        </div>
+                        ${subtitle ? `<span class="text-xs font-semibold opacity-85">${subtitle}</span>` : ''}
+                    </div>
+                </td>
+            </tr>
+        `;
     }
 
     function excelColLetter(index) {
@@ -154,7 +215,7 @@ const App = (() => {
             isPassing: true,
             isFailing: false,
             isBelowHonorFloor: false,
-            label: g >= GRADING_POLICY.honorAverage ? 'Passed (Honor 90+)' : 'Passed',
+            label: meetsHonorAveragePolicy(g) ? 'Passed (Honor 90+)' : 'Passed',
             badgeClass: 'bg-[#D5F0EA] text-[#0F766E] border-[#99D8CC]',
             inputClass: 'border-[#D8DEE8] bg-white text-[#17243A]',
         };
@@ -171,7 +232,14 @@ const App = (() => {
 
         const subjects = section.assigned_subjects || [];
         const totalSectionUnits = subjects.reduce((acc, s) => acc + Number(s.units || 0), 0);
-        const sectionStudents = state.students.filter(st => st.section_id === section.id);
+        const sectionStudents = state.students
+            .filter(st => st.section_id === section.id)
+            .sort((a, b) => {
+                const ga = normalizeGenderClient(a.gender);
+                const gb = normalizeGenderClient(b.gender);
+                if (ga !== gb) return ga === 'Female' ? -1 : 1;
+                return a.full_name.localeCompare(b.full_name);
+            });
 
         const rows = sectionStudents.map((student, idx) => {
             const studentGradesObj = student.grades || {};
@@ -252,11 +320,13 @@ const App = (() => {
                 weightedAverage >= GRADING_POLICY.passingGrade &&
                 !hasFailingGrade;
 
+            const meetsHonorAverage = meetsHonorAveragePolicy(weightedAverage);
+            const roundedAverage = weightedAverage !== null ? Math.round(weightedAverage) : null;
+
             const isQualified =
                 isComplete &&
                 !hasBelow85 &&
-                weightedAverage !== null &&
-                weightedAverage >= (GRADING_POLICY.honorAverage - 0.0001);
+                meetsHonorAverage;
 
             let statusReason = 'Pending / Incomplete Grades';
             let statusType = 'incomplete';
@@ -267,16 +337,17 @@ const App = (() => {
                         : `Failed (Avg ${weightedAverage.toFixed(2)} < ${GRADING_POLICY.passingGrade})`;
                     statusType = 'failed';
                 } else if (isQualified) {
-                    statusReason = 'Qualified (Avg ≥ 90 & No Grade < 85)';
+                    const roundNote = weightedAverage < 90 ? ` (Rounds to 90)` : '';
+                    statusReason = `Qualified (Avg ${weightedAverage.toFixed(2)}${roundNote} ≥ 90 & No Grade < 85)`;
                     statusType = 'qualified';
-                } else if (hasBelow85 && weightedAverage >= GRADING_POLICY.honorAverage) {
+                } else if (hasBelow85 && meetsHonorAverage) {
                     statusReason = `Passed · Below 85 Floor: ${below85Subjects.join(', ')}`;
                     statusType = 'below85';
                 } else if (hasBelow85) {
                     statusReason = `Passed · Avg < 90 & Grade < 85 (${below85Subjects.join(', ')})`;
                     statusType = 'below_both';
                 } else {
-                    statusReason = `Passed · Average ${weightedAverage.toFixed(2)} (< 90 Honor)`;
+                    statusReason = `Passed · Average ${weightedAverage.toFixed(2)} (< 89.5 Honor Floor)`;
                     statusType = 'below90';
                 }
             } else if (gradedCount > 0 && isFailingOverall) {
@@ -297,6 +368,8 @@ const App = (() => {
                 totalSubjects: subjects.length,
                 isComplete,
                 weightedAverage,
+                roundedAverage,
+                meetsHonorAverage,
                 minGrade,
                 minGradeSubject,
                 hasBelow85,
@@ -462,6 +535,12 @@ const App = (() => {
 
     function onDashboardStudentSearch(query) {
         state.dashboardStudentSearch = String(query || '');
+        state.dashboardCurrentPage = 1;
+        renderDashboard();
+    }
+
+    function setDashboardGenderFilter(gender = '') {
+        state.dashboardGenderFilter = gender || '';
         state.dashboardCurrentPage = 1;
         renderDashboard();
     }
@@ -684,15 +763,21 @@ const App = (() => {
                         <button type="button" onclick="App.openAssignSubjectsModal(${activeSec.id})" class="font-bold underline cursor-pointer">+ Assign Subjects</button>
                    </div>`;
 
-            // Filter & paginate students in active section
-            const allSectionRows = standings ? standings.rankedRows : [];
+            // Filter & paginate students in active section (Ordered by Female first, then Male)
+            const allSectionRows = standings ? standings.rows : [];
+            const totalFemaleInSec = allSectionRows.filter(r => normalizeGenderClient(r.student.gender) === 'Female').length;
+            const totalMaleInSec = allSectionRows.filter(r => normalizeGenderClient(r.student.gender) === 'Male').length;
+
             const searchQ = (state.dashboardStudentSearch || '').trim().toLowerCase();
-            const filteredSectionRows = searchQ
-                ? allSectionRows.filter(r =>
+            const genderFilter = state.dashboardGenderFilter || '';
+            const filteredSectionRows = allSectionRows.filter(r => {
+                if (genderFilter && normalizeGenderClient(r.student.gender) !== genderFilter) return false;
+                if (!searchQ) return true;
+                return (
                     r.student.full_name.toLowerCase().includes(searchQ) ||
                     r.student.student_no.toLowerCase().includes(searchQ)
-                  )
-                : allSectionRows;
+                );
+            });
 
             const totalMatching = filteredSectionRows.length;
             const pageSize = state.dashboardPageSize === 'ALL'
@@ -732,72 +817,113 @@ const App = (() => {
                 `;
             }).join('');
 
-            const studentRowsHtml = paginatedRows.length > 0
-                ? paginatedRows.map((r, idx) => {
-                    let statusBadgeHtml = '';
-                    if (r.isFailingOverall) {
-                        statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]"><span>&#10005;</span><span>${escapeHtml(r.statusReason)}</span></span>`;
-                    } else if (r.isQualified) {
-                        statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>Passed &bull; Honor Qualified</span></span>`;
-                    } else if (r.hasBelow85) {
-                        statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]"><span>&#9888;</span><span>${escapeHtml(r.statusReason)}</span></span>`;
-                    } else if (r.isPassingOverall) {
-                        statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>${escapeHtml(r.statusReason)}</span></span>`;
-                    } else {
-                        statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]"><span>&#9203;</span><span>${escapeHtml(r.statusReason)}</span></span>`;
-                    }
+            const genderFilterPillsHtml = `
+                <div class="inline-flex items-center gap-1 bg-white p-1 rounded-xl border border-[#D8DEE8]">
+                    <button type="button" onclick="App.setDashboardGenderFilter('')"
+                        class="px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            !genderFilter ? 'bg-[#17243A] text-white' : 'text-[#64748B] hover:text-[#17243A]'
+                        }">
+                        All (${allSectionRows.length})
+                    </button>
+                    <button type="button" onclick="App.setDashboardGenderFilter('Female')"
+                        class="px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            genderFilter === 'Female' ? 'bg-[#842D60] text-white' : 'text-[#842D60] hover:bg-[#F5DFEB]/60'
+                        }">
+                        &#9792; Female (${totalFemaleInSec})
+                    </button>
+                    <button type="button" onclick="App.setDashboardGenderFilter('Male')"
+                        class="px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            genderFilter === 'Male' ? 'bg-[#2C4870] text-white' : 'text-[#2C4870] hover:bg-[#EBF1F8]/70'
+                        }">
+                        &#9794; Male (${totalMaleInSec})
+                    </button>
+                </div>
+            `;
 
-                    const minGradeColor = r.minGrade === null
-                        ? 'text-[#64748B]'
-                        : r.minGrade < GRADING_POLICY.passingGrade
-                            ? 'text-[#842D60] font-bold'
-                            : r.minGrade < GRADING_POLICY.honorSubjectFloor
-                                ? 'text-[#80530F] font-bold'
-                                : 'text-[#17243A]';
+            const renderDashboardStudentRow = (r, rowNumber) => {
+                let statusBadgeHtml = '';
+                if (r.isFailingOverall) {
+                    statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]"><span>&#10005;</span><span>${escapeHtml(r.statusReason)}</span></span>`;
+                } else if (r.isQualified) {
+                    statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>Passed &bull; Honor Qualified</span></span>`;
+                } else if (r.hasBelow85) {
+                    statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]"><span>&#9888;</span><span>${escapeHtml(r.statusReason)}</span></span>`;
+                } else if (r.isPassingOverall) {
+                    statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>${escapeHtml(r.statusReason)}</span></span>`;
+                } else {
+                    statusBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]"><span>&#9203;</span><span>${escapeHtml(r.statusReason)}</span></span>`;
+                }
 
-                    const avgColor = r.weightedAverage === null
-                        ? 'text-[#64748B]'
-                        : r.isFailingOverall
-                            ? 'text-[#842D60]'
-                            : r.weightedAverage >= GRADING_POLICY.honorAverage
-                                ? 'text-[#0F766E]'
-                                : 'text-[#17243A]';
+                const minGradeColor = r.minGrade === null
+                    ? 'text-[#64748B]'
+                    : r.minGrade < GRADING_POLICY.passingGrade
+                        ? 'text-[#842D60] font-bold'
+                        : r.minGrade < GRADING_POLICY.honorSubjectFloor
+                            ? 'text-[#80530F] font-bold'
+                            : 'text-[#17243A]';
 
-                    const rowNumber = startIndex + idx + 1;
+                const avgColor = r.weightedAverage === null
+                    ? 'text-[#64748B]'
+                    : r.isFailingOverall
+                        ? 'text-[#842D60]'
+                        : meetsHonorAveragePolicy(r.weightedAverage)
+                            ? 'text-[#0F766E]'
+                            : 'text-[#17243A]';
 
-                    return `
-                        <tr class="hover:bg-[#F5F7FA]/90 transition">
-                            <td class="py-2.5 px-3 font-mono text-xs text-[#64748B]">${rowNumber}</td>
-                            <td class="py-2.5 px-3 font-bold ${r.rank === 1 ? 'text-[#80530F]' : 'text-[#17243A]'}">${r.rank ? `#${r.rank}` : '—'}</td>
-                            <td class="py-2.5 px-3 font-mono text-xs font-semibold text-[#64748B]">${escapeHtml(r.student.student_no)}</td>
-                            <td class="py-2.5 px-3 font-semibold text-[#17243A]">${escapeHtml(r.student.full_name)}</td>
-                            <td class="py-2.5 px-3 text-center font-mono ${minGradeColor}">${r.minGrade !== null ? r.minGrade.toFixed(0) : '—'}</td>
-                            <td class="py-2.5 px-3 text-center font-display font-bold ${avgColor}">${r.weightedAverage !== null ? r.weightedAverage.toFixed(2) : '—'}</td>
-                            <td class="py-2.5 px-3">${statusBadgeHtml}</td>
-                            <td class="py-2.5 px-3 text-right whitespace-nowrap">
-                                <div class="inline-flex items-center gap-1">
-                                    <button type="button" onclick="App.openSectionGrading(${activeSec.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Encode grades">
-                                        Grade
-                                    </button>
-                                    <button type="button" onclick="App.openStudentModal(${r.student.id})" class="p-1.5 rounded-lg text-[#64748B] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit or transfer student">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
-                                        </svg>
-                                    </button>
-                                    <button type="button" onclick="App.confirmDeleteStudent(${r.student.id})" class="p-1.5 rounded-lg text-[#64748B] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove student from section">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    `;
-                }).join('')
-                : `
+                return `
+                    <tr class="hover:bg-[#F5F7FA]/90 transition">
+                        <td class="py-2.5 px-3 font-mono text-xs text-[#64748B]">${rowNumber}</td>
+                        <td class="py-2.5 px-3 font-bold ${r.rank === 1 ? 'text-[#80530F]' : 'text-[#17243A]'}">${r.rank ? `#${r.rank}` : '—'}</td>
+                        <td class="py-2.5 px-3 font-mono text-xs font-semibold text-[#64748B]">${escapeHtml(r.student.student_no)}</td>
+                        <td class="py-2.5 px-3">
+                            <div class="flex items-center gap-2">
+                                <span class="font-semibold text-[#17243A]">${escapeHtml(r.student.full_name)}</span>
+                                ${genderBadgeHtml(r.student.gender, true)}
+                            </div>
+                        </td>
+                        <td class="py-2.5 px-3 text-center font-mono ${minGradeColor}">${r.minGrade !== null ? r.minGrade.toFixed(0) : '—'}</td>
+                        <td class="py-2.5 px-3 text-center font-display font-bold ${avgColor}">${r.weightedAverage !== null ? r.weightedAverage.toFixed(2) : '—'}</td>
+                        <td class="py-2.5 px-3">${statusBadgeHtml}</td>
+                        <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                            <div class="inline-flex items-center gap-1">
+                                <button type="button" onclick="App.openSectionGrading(${activeSec.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Encode grades">
+                                    Grade
+                                </button>
+                                <button type="button" onclick="App.openStudentModal(${r.student.id})" class="p-1.5 rounded-lg text-[#64748B] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit or transfer student">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                    </svg>
+                                </button>
+                                <button type="button" onclick="App.confirmDeleteStudent(${r.student.id})" class="p-1.5 rounded-lg text-[#64748B] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove student from section">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            };
+
+            let studentRowsHtml = '';
+            if (paginatedRows.length > 0) {
+                const femalePageRows = paginatedRows.filter(r => normalizeGenderClient(r.student.gender) === 'Female');
+                const malePageRows = paginatedRows.filter(r => normalizeGenderClient(r.student.gender) === 'Male');
+                const chunks = [];
+                if (femalePageRows.length > 0) {
+                    chunks.push(genderSectionHeaderRowHtml('Female', totalFemaleInSec, 8, `${activeSec.section_name} • Female Roster`));
+                    femalePageRows.forEach((r, idx) => chunks.push(renderDashboardStudentRow(r, idx + 1)));
+                }
+                if (malePageRows.length > 0) {
+                    chunks.push(genderSectionHeaderRowHtml('Male', totalMaleInSec, 8, `${activeSec.section_name} • Male Roster`));
+                    malePageRows.forEach((r, idx) => chunks.push(renderDashboardStudentRow(r, idx + 1)));
+                }
+                studentRowsHtml = chunks.join('');
+            } else {
+                studentRowsHtml = `
                     <tr>
                         <td colspan="8" class="py-8 px-4 text-center">
-                            <p class="text-sm font-bold text-[#17243A]">${searchQ ? 'No matching students in this section' : `No students enrolled in ${escapeHtml(activeSec.section_name)} yet`}</p>
+                            <p class="text-sm font-bold text-[#17243A]">${searchQ || genderFilter ? 'No matching students in this section' : `No students enrolled in ${escapeHtml(activeSec.section_name)} yet`}</p>
                             <p class="text-xs text-[#64748B] mt-1">Adjust enrollment for ${escapeHtml(activeSec.section_name)} by adding a single student or bulk-enrolling a list.</p>
                             <div class="mt-3 inline-flex items-center gap-2">
                                 <button type="button" onclick="App.openStudentModal(null, ${activeSec.id}, 'single')" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
@@ -810,6 +936,7 @@ const App = (() => {
                         </td>
                     </tr>
                 `;
+            }
 
             // Pagination buttons
             const pageButtonsHtml = [];
@@ -838,7 +965,7 @@ const App = (() => {
                                     ${escapeHtml(activeSec.year_level)}
                                 </span>
                                 <span class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">
-                                    ${activeSec.student_count} Enrolled Student${activeSec.student_count === 1 ? '' : 's'}
+                                    ${activeSec.student_count} Enrolled (&#9792; ${totalFemaleInSec} Female &bull; &#9794; ${totalMaleInSec} Male)
                                 </span>
                                 <span class="text-xs font-medium text-[#64748B]">&bull; ${formatUnits(activeSec.total_units)} units</span>
                                 ${qualCount > 0 ? `<span class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">&#10003; ${qualCount} Honor Qualifier${qualCount === 1 ? '' : 's'}</span>` : ''}
@@ -871,12 +998,13 @@ const App = (() => {
 
                 <!-- Enrolled Students List for Active Section (Default 10 Entries + Adjustable Limit & Enrollment) -->
                 <div class="border border-[#D8DEE8] rounded-2xl overflow-hidden bg-white flex-1 flex flex-col min-h-0">
-                    <!-- Table Toolbar: Show Entries Selector (10 Default) + Search + Adjust Enrolled Students -->
+                    <!-- Table Toolbar: Show Entries Selector (10 Default) + Female/Male Filter + Search -->
                     <div class="px-3.5 py-2.5 bg-[#F5F7FA] border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2.5 shrink-0">
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="text-xs font-bold uppercase tracking-wider text-[#17243A]">
                                 Students in ${escapeHtml(activeSec.section_name)}
                             </span>
+                            ${genderFilterPillsHtml}
                             <div class="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-[#D8DEE8]">
                                 <label for="dashboardEntriesSelect" class="text-xs font-medium text-[#64748B]">Show:</label>
                                 <select id="dashboardEntriesSelect" onchange="App.setDashboardPageSize(this.value)" class="text-xs font-bold text-[#17243A] bg-transparent outline-none cursor-pointer">
@@ -978,7 +1106,7 @@ const App = (() => {
                 </div>
             `;
         } else {
-            stuContainer.innerHTML = overviewStudents.map(st => {
+            const renderOverviewItem = (st, idx) => {
                 const standings = standingsBySection[st.section_id];
                 const stRow = standings?.rows.find(r => r.student.id === st.id);
                 const avg = stRow ? stRow.weightedAverage : null;
@@ -1013,9 +1141,13 @@ const App = (() => {
                 }
 
                 return `
-                    <div class="py-3 px-3 flex items-center justify-between gap-3 hover:bg-[#F5F7FA] rounded-xl transition cursor-pointer" onclick="App.openSectionGrading(${st.section_id})" title="Click to open section grade sheet">
+                    <div class="py-2.5 px-3 flex items-center justify-between gap-3 hover:bg-[#F5F7FA] rounded-xl transition cursor-pointer" onclick="App.openSectionGrading(${st.section_id})" title="Click to open section grade sheet">
                         <div class="min-w-0">
-                            <p class="text-sm font-bold text-[#17243A] truncate">${escapeHtml(st.full_name)}</p>
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-mono text-xs text-[#64748B]">${idx + 1}.</span>
+                                <p class="text-sm font-bold text-[#17243A] truncate">${escapeHtml(st.full_name)}</p>
+                                ${genderBadgeHtml(st.gender, true)}
+                            </div>
                             <div class="flex items-center gap-1.5 text-xs text-[#64748B] mt-0.5">
                                 <span class="font-mono text-xs text-[#64748B]">${escapeHtml(st.student_no)}</span>
                                 <span>&bull;</span>
@@ -1031,7 +1163,32 @@ const App = (() => {
                         </div>
                     </div>
                 `;
-            }).join('');
+            };
+
+            const femaleOverview = overviewStudents.filter(st => normalizeGenderClient(st.gender) === 'Female');
+            const maleOverview = overviewStudents.filter(st => normalizeGenderClient(st.gender) === 'Male');
+            const overviewBlocks = [];
+
+            if (femaleOverview.length > 0) {
+                overviewBlocks.push(`
+                    <div class="py-1.5 px-2.5 mb-1 rounded-lg bg-[#F5DFEB]/75 border border-[#E2B8CF] flex items-center justify-between">
+                        <span class="text-xs font-extrabold uppercase tracking-wider text-[#842D60]">&#9792; Female (${femaleOverview.length})</span>
+                        <span class="text-xs font-semibold text-[#842D60]">${activeSectionForOverview ? escapeHtml(activeSectionForOverview.section_name) : 'All Sections'}</span>
+                    </div>
+                    ${femaleOverview.map((st, idx) => renderOverviewItem(st, idx)).join('')}
+                `);
+            }
+            if (maleOverview.length > 0) {
+                overviewBlocks.push(`
+                    <div class="py-1.5 px-2.5 mt-2 mb-1 rounded-lg bg-[#EBF1F8]/90 border border-[#C5D5EA] flex items-center justify-between">
+                        <span class="text-xs font-extrabold uppercase tracking-wider text-[#2C4870]">&#9794; Male (${maleOverview.length})</span>
+                        <span class="text-xs font-semibold text-[#2C4870]">${activeSectionForOverview ? escapeHtml(activeSectionForOverview.section_name) : 'All Sections'}</span>
+                    </div>
+                    ${maleOverview.map((st, idx) => renderOverviewItem(st, idx)).join('')}
+                `);
+            }
+
+            stuContainer.innerHTML = overviewBlocks.join('');
         }
     }
 
@@ -1122,7 +1279,7 @@ const App = (() => {
                                 </div>
                                 <p class="text-xs sm:text-sm text-[#64748B] mt-1">
                                     ${sec.adviser ? `Adviser: <strong class="text-[#17243A]">${escapeHtml(sec.adviser)}</strong> &bull; ` : ''}
-                                    <span>${sec.student_count} Student${sec.student_count === 1 ? '' : 's'}</span>
+                                    <span>${sec.student_count} Student${sec.student_count === 1 ? '' : 's'} (<span class="text-[#842D60] font-semibold">&#9792; ${sec.female_count || 0} Female</span>, <span class="text-[#2C4870] font-semibold">&#9794; ${sec.male_count || 0} Male</span>)</span>
                                     &bull;
                                     <span>${sec.subject_count} Subject${sec.subject_count === 1 ? '' : 's'} (Divisor: <strong class="text-[#17243A]">${formatUnits(sec.total_units)} units</strong>)</span>
                                 </p>
@@ -1151,9 +1308,16 @@ const App = (() => {
                         <div class="mt-3.5">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-xs font-bold uppercase tracking-wider text-[#64748B]">Assigned Subjects (${sec.subject_count})</span>
-                                <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="text-xs sm:text-sm font-semibold text-[#5276A7] hover:text-[#17243A] cursor-pointer">
-                                    + Assign / Manage Subjects
-                                </button>
+                                <div class="flex items-center gap-2">
+                                    ${sec.assigned_subjects.length > 1 ? `
+                                        <button type="button" onclick="App.openReorderSubjectsModal(${sec.id})" class="text-xs font-semibold text-[#2C4870] hover:text-[#17243A] hover:underline cursor-pointer flex items-center gap-1">
+                                            <span>⇅ Order</span>
+                                        </button>
+                                    ` : ''}
+                                    <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="text-xs sm:text-sm font-semibold text-[#5276A7] hover:text-[#17243A] cursor-pointer">
+                                        + Assign / Manage Subjects
+                                    </button>
+                                </div>
                             </div>
                             ${subjectsListHtml}
                         </div>
@@ -1283,15 +1447,17 @@ const App = (() => {
         const query = (document.getElementById('studentSearchInput')?.value || '').trim().toLowerCase();
         const yearFilter = document.getElementById('studentYearFilter')?.value || '';
         const sectionFilter = document.getElementById('studentSectionFilter')?.value || '';
+        const genderFilter = document.getElementById('studentGenderFilter')?.value || '';
 
         const resetBtn = document.getElementById('resetStudentFiltersBtn');
         if (resetBtn) {
-            resetBtn.classList.toggle('hidden', !query && !yearFilter && !sectionFilter);
+            resetBtn.classList.toggle('hidden', !query && !yearFilter && !sectionFilter && !genderFilter);
         }
 
         const filtered = state.students.filter(st => {
             if (yearFilter && st.year_level !== yearFilter) return false;
             if (sectionFilter && String(st.section_id) !== String(sectionFilter)) return false;
+            if (genderFilter && normalizeGenderClient(st.gender) !== genderFilter) return false;
             if (!query) return true;
             return (
                 st.full_name.toLowerCase().includes(query) ||
@@ -1304,9 +1470,9 @@ const App = (() => {
         if (filtered.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="py-12 px-4 text-center">
+                    <td colspan="8" class="py-12 px-4 text-center">
                         <p class="text-base font-bold text-[#17243A]">No student records match your view</p>
-                        <p class="text-sm text-[#64748B] mt-1">Enroll a student and assign them to a section and year level.</p>
+                        <p class="text-sm text-[#64748B] mt-1">Enroll a student and assign them to a section, year level, and gender group.</p>
                         <button type="button" onclick="App.openStudentModal()" class="mt-3.5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
                             + Add Student
                         </button>
@@ -1316,18 +1482,18 @@ const App = (() => {
             return;
         }
 
-        tbody.innerHTML = filtered.map(st => {
-            const statusClasses = {
-                Active: 'bg-[#D5F0EA] text-[#0F766E] border-[#99D8CC]',
-                Irregular: 'bg-[#FFF0D1] text-[#80530F] border-[#F0D296]',
-                Inactive: 'bg-[#F5DFEB] text-[#842D60] border-[#E2B8CF]',
-            };
-            const statusIcons = {
-                Active: '&#10003;',
-                Irregular: '&#9888;',
-                Inactive: '&#10005;',
-            };
+        const statusClasses = {
+            Active: 'bg-[#D5F0EA] text-[#0F766E] border-[#99D8CC]',
+            Irregular: 'bg-[#FFF0D1] text-[#80530F] border-[#F0D296]',
+            Inactive: 'bg-[#F5DFEB] text-[#842D60] border-[#E2B8CF]',
+        };
+        const statusIcons = {
+            Active: '&#10003;',
+            Irregular: '&#9888;',
+            Inactive: '&#10005;',
+        };
 
+        const renderStudentRow = (st, idxInGender) => {
             const subjectBadges = st.assigned_subjects.length > 0
                 ? st.assigned_subjects.map(sub => `
                     <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-medium bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]" title="${escapeHtml(sub.subject_name)}">
@@ -1340,10 +1506,14 @@ const App = (() => {
             return `
                 <tr class="hover:bg-[#F5F7FA]/80 transition">
                     <td class="py-3 px-4 align-middle whitespace-nowrap">
+                        <span class="font-mono text-xs text-[#64748B] mr-1.5">${idxInGender}.</span>
                         <span class="font-mono text-xs sm:text-sm font-semibold text-[#17243A] bg-[#F5F7FA] border border-[#D8DEE8] px-2.5 py-1 rounded-lg">${escapeHtml(st.student_no)}</span>
                     </td>
                     <td class="py-3 px-4 align-middle">
                         <p class="font-semibold text-[#17243A] text-sm">${escapeHtml(st.full_name)}</p>
+                    </td>
+                    <td class="py-3 px-4 align-middle whitespace-nowrap">
+                        ${genderBadgeHtml(st.gender)}
                     </td>
                     <td class="py-3 px-4 align-middle whitespace-nowrap">
                         <span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${yearLevelBadgeClass(st.year_level)}">
@@ -1385,7 +1555,46 @@ const App = (() => {
                     </td>
                 </tr>
             `;
-        }).join('');
+        };
+
+        // Group students by Section, then by Female and Male within each Section
+        const sectionsOrder = state.sections.filter(sec => filtered.some(st => st.section_id === sec.id));
+        const htmlChunks = [];
+
+        sectionsOrder.forEach(sec => {
+            const secStudents = filtered.filter(st => st.section_id === sec.id);
+            const femaleList = secStudents.filter(st => normalizeGenderClient(st.gender) === 'Female');
+            const maleList = secStudents.filter(st => normalizeGenderClient(st.gender) === 'Male');
+
+            htmlChunks.push(`
+                <tr class="bg-[#17243A] text-white">
+                    <td colspan="8" class="py-2.5 px-4">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex items-center gap-2">
+                                <span class="font-display font-bold text-sm">${escapeHtml(sec.section_name)}</span>
+                                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-white/15 text-slate-100">${escapeHtml(sec.year_level)}</span>
+                                <span class="text-xs text-slate-300">&bull; ${secStudents.length} Student${secStudents.length === 1 ? '' : 's'} (&#9792; ${femaleList.length} Female, &#9794; ${maleList.length} Male)</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button type="button" onclick="App.openStudentModal(null, ${sec.id}, 'single')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/15 hover:bg-white/25 text-white transition cursor-pointer">+ Add Student</button>
+                                <button type="button" onclick="App.openSectionGrading(${sec.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] hover:bg-white transition cursor-pointer">Open Grade Sheet &rarr;</button>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            `);
+
+            if (femaleList.length > 0) {
+                htmlChunks.push(genderSectionHeaderRowHtml('Female', femaleList.length, 8, `${sec.section_name} (${sec.year_level})`));
+                femaleList.forEach((st, idx) => htmlChunks.push(renderStudentRow(st, idx + 1)));
+            }
+            if (maleList.length > 0) {
+                htmlChunks.push(genderSectionHeaderRowHtml('Male', maleList.length, 8, `${sec.section_name} (${sec.year_level})`));
+                maleList.forEach((st, idx) => htmlChunks.push(renderStudentRow(st, idx + 1)));
+            }
+        });
+
+        tbody.innerHTML = htmlChunks.join('');
     }
 
     // ==================== VIEW 5: TEACHER GRADE INPUT PER SECTION ====================
@@ -1587,12 +1796,15 @@ const App = (() => {
         }
 
         const searchQ = (document.getElementById('gradingStudentSearchInput')?.value || '').trim().toLowerCase();
-        const filteredRows = searchQ
-            ? standings.rows.filter(r =>
+        const genderFilter = document.getElementById('gradingGenderFilter')?.value || '';
+        const filteredRows = standings.rows.filter(r => {
+            if (genderFilter && normalizeGenderClient(r.student.gender) !== genderFilter) return false;
+            if (!searchQ) return true;
+            return (
                 r.student.full_name.toLowerCase().includes(searchQ) ||
                 r.student.student_no.toLowerCase().includes(searchQ)
-              )
-            : standings.rows;
+            );
+        });
 
         const filteredStandings = {
             ...standings,
@@ -1612,8 +1824,26 @@ const App = (() => {
         if (!sub) return;
         const colLetter = excelColLetter(subIndex);
 
-        const rowsHtml = standings.rows.map((row, rIdx) => {
+        const femaleCount = standings.rows.filter(r => normalizeGenderClient(r.student.gender) === 'Female').length;
+        const maleCount = standings.rows.filter(r => normalizeGenderClient(r.student.gender) === 'Male').length;
+        let lastGenderGroup = null;
+        const rowsHtmlChunks = [];
+
+        standings.rows.forEach((row, rIdx) => {
             const st = row.student;
+            const gNorm = normalizeGenderClient(st.gender);
+            if (gNorm !== lastGenderGroup) {
+                lastGenderGroup = gNorm;
+                rowsHtmlChunks.push(
+                    genderSectionHeaderRowHtml(
+                        gNorm,
+                        gNorm === 'Female' ? femaleCount : maleCount,
+                        6,
+                        `${section.section_name} • ${sub.subject_code}`
+                    )
+                );
+            }
+
             const sr = row.subjectResults.find(r => r.subject_id === subjectId);
             const currentVal = sr && sr.grade !== null ? sr.grade : '';
             const weightedVal = sr && sr.weighted_product !== null ? sr.weighted_product.toFixed(1) : '—';
@@ -1629,11 +1859,16 @@ const App = (() => {
                     }">${p}</button>
             `).join('');
 
-            return `
+            rowsHtmlChunks.push(`
                 <tr class="hover:bg-[#F5F7FA] transition text-sm" id="singleRow_${st.id}" data-student-row="${st.id}">
                     <td class="py-2.5 px-3.5 font-mono text-xs text-[#64748B]">${colLetter}${row.excel_row}</td>
                     <td class="py-2.5 px-3.5 font-mono text-xs font-semibold text-[#17243A]">${escapeHtml(st.student_no)}</td>
-                    <td class="py-2.5 px-3.5 font-semibold text-[#17243A]">${escapeHtml(st.full_name)}</td>
+                    <td class="py-2.5 px-3.5">
+                        <div class="flex items-center gap-2">
+                            <span class="font-semibold text-[#17243A]">${escapeHtml(st.full_name)}</span>
+                            ${genderBadgeHtml(st.gender, true)}
+                        </div>
+                    </td>
                     <td class="py-2.5 px-3.5 text-center">
                         <div class="inline-flex items-center justify-center gap-2">
                             <input type="number" step="0.01" min="50" max="100"
@@ -1665,8 +1900,10 @@ const App = (() => {
                         ${renderSingleGradeBadge(sr?.grade)}
                     </td>
                 </tr>
-            `;
-        }).join('');
+            `);
+        });
+
+        const rowsHtml = rowsHtmlChunks.join('');
 
         container.innerHTML = `
             <div class="px-4 py-3 bg-[#F5F7FA] border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 shrink-0">
@@ -1706,8 +1943,9 @@ const App = (() => {
             return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]"><span>&#9203;</span><span>Pending</span></span>`;
         }
         const g = Number(grade);
-        if (g >= GRADING_POLICY.honorAverage) {
-            return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>Passed &bull; 90+ Honor (${g.toFixed(0)})</span></span>`;
+        if (meetsHonorAveragePolicy(g)) {
+            const roundText = g < 90 ? ` (Rounds to 90)` : '';
+            return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>Passed &bull; 90+ Honor${roundText} (${g.toFixed(0)})</span></span>`;
         }
         if (g >= GRADING_POLICY.honorSubjectFloor) {
             return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>Passed &ge; 85 (${g.toFixed(0)})</span></span>`;
@@ -1728,7 +1966,7 @@ const App = (() => {
         const subjectHeadersHtml = subjects.map((sub, idx) => {
             const col = excelColLetter(idx);
             return `
-                <th class="py-2.5 px-2 text-center min-w-[82px] border-l border-[#D8DEE8]">
+                <th class="py-2.5 px-2 text-center min-w-[96px] sm:min-w-[108px] border-l border-[#D8DEE8]">
                     <button type="button" onclick="App.setGradingSubjectTab('${sub.subject_id}')" class="w-full text-center group cursor-pointer" title="Click to focus only on ${escapeHtml(sub.subject_code)} (${escapeHtml(sub.subject_name)})">
                         <div class="text-xs font-mono font-bold text-[#5276A7] group-hover:underline">${col}21*${formatUnits(sub.units)}</div>
                         <div class="text-xs font-bold text-[#17243A] truncate">${escapeHtml(sub.subject_code)}</div>
@@ -1738,8 +1976,27 @@ const App = (() => {
             `;
         }).join('');
 
-        const bodyRowsHtml = standings.rows.map((row, rIdx) => {
+        const femaleCount = standings.rows.filter(r => normalizeGenderClient(r.student.gender) === 'Female').length;
+        const maleCount = standings.rows.filter(r => normalizeGenderClient(r.student.gender) === 'Male').length;
+        const totalColsCount = subjects.length + 6;
+        let lastGenderGroup = null;
+        const bodyRowsChunks = [];
+
+        standings.rows.forEach((row, rIdx) => {
             const st = row.student;
+            const gNorm = normalizeGenderClient(st.gender);
+            if (gNorm !== lastGenderGroup) {
+                lastGenderGroup = gNorm;
+                bodyRowsChunks.push(
+                    genderSectionHeaderRowHtml(
+                        gNorm,
+                        gNorm === 'Female' ? femaleCount : maleCount,
+                        totalColsCount,
+                        `${section.section_name} (${section.year_level}) • ${state.gradingQuarter}`
+                    )
+                );
+            }
+
             const rank = rankByStudentId[st.id];
             const inputsHtml = row.subjectResults.map((sr, cIdx) => {
                 const val = sr.grade !== null ? sr.grade : '';
@@ -1762,7 +2019,7 @@ const App = (() => {
                             onblur="App.onGradeCellBlur(this)"
                             onkeydown="App.onGradeCellKeyDown(event, this)"
                             oninput="App.onMasterSheetCellInput(${st.id}, ${section.id})"
-                            class="w-full min-w-[68px] max-w-[86px] px-2 py-1.5 text-center font-bold text-sm rounded-xl border ${evalInfo.inputClass} focus:border-[#17243A] focus:ring-2 focus:ring-[#5276A7]/25 outline-none">
+                            class="w-full min-w-[76px] max-w-[96px] px-2.5 py-1.5 text-center font-bold text-sm rounded-xl border ${evalInfo.inputClass} focus:border-[#17243A] focus:ring-2 focus:ring-[#5276A7]/25 outline-none">
                     </td>
                 `;
             }).join('');
@@ -1772,7 +2029,8 @@ const App = (() => {
             if (row.isFailingOverall) {
                 qualBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]"><span>&#10005;</span><span>${escapeHtml(row.statusReason)}</span></span>`;
             } else if (row.isQualified) {
-                qualBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>QUALIFIED (≥90 &amp; No &lt;85)</span></span>`;
+                const roundText = (row.weightedAverage !== null && row.weightedAverage < 90) ? ' (Rounds to 90)' : '';
+                qualBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>QUALIFIED (≥90${roundText} &amp; No &lt;85)</span></span>`;
             } else if (row.hasBelow85) {
                 qualBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]"><span>&#9888;</span><span>${escapeHtml(row.statusReason)}</span></span>`;
             } else if (row.isPassingOverall) {
@@ -1785,35 +2043,40 @@ const App = (() => {
                 ? 'text-[#64748B]'
                 : row.isFailingOverall
                     ? 'text-[#842D60]'
-                    : row.weightedAverage >= GRADING_POLICY.honorAverage
+                    : meetsHonorAveragePolicy(row.weightedAverage)
                         ? 'text-[#0F766E]'
                         : 'text-[#17243A]';
 
-            return `
+            bodyRowsChunks.push(`
                 <tr class="hover:bg-[#F5F7FA] transition text-sm" id="masterRow_${st.id}" data-excel-row="${row.excel_row}">
-                    <td class="py-2 px-2.5 font-mono text-xs text-[#64748B] whitespace-nowrap">#${row.excel_row}</td>
-                    <td class="py-2 px-3.5 whitespace-nowrap sticky left-0 bg-white/95 backdrop-blur-xs z-10 border-r border-[#D8DEE8]">
-                        <div class="font-semibold text-[#17243A] text-sm">${escapeHtml(st.full_name)}</div>
+                    <td class="py-2.5 px-3 font-mono text-xs text-[#64748B] whitespace-nowrap">#${row.excel_row}</td>
+                    <td class="py-2.5 px-4 whitespace-nowrap sticky left-0 bg-white/95 backdrop-blur-xs z-10 border-r border-[#D8DEE8]">
+                        <div class="flex items-center gap-2">
+                            <span class="font-semibold text-[#17243A] text-sm">${escapeHtml(st.full_name)}</span>
+                            ${genderBadgeHtml(st.gender, true)}
+                        </div>
                         <div class="font-mono text-xs text-[#64748B]">${escapeHtml(st.student_no)}</div>
                     </td>
                     ${inputsHtml}
-                    <td class="py-2 px-2.5 text-center font-mono text-xs text-[#64748B] border-l border-[#D8DEE8] whitespace-nowrap" id="masterSum_${st.id}">
+                    <td class="py-2.5 px-3 text-center font-mono text-xs text-[#64748B] border-l border-[#D8DEE8] whitespace-nowrap" id="masterSum_${st.id}">
                         ${row.gradedCount > 0 ? `${row.weightedSum.toFixed(1)} / ${formatUnits(row.isComplete ? row.totalSectionUnits : row.gradedUnits)}` : '—'}
                     </td>
-                    <td class="py-2 px-2.5 text-center border-l border-[#D8DEE8] whitespace-nowrap" id="masterAvg_${st.id}">
+                    <td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] whitespace-nowrap" id="masterAvg_${st.id}">
                         <span class="font-display font-bold text-sm ${avgColor}">
                             ${avgText}
                         </span>
                     </td>
-                    <td class="py-2 px-2.5 text-center border-l border-[#D8DEE8] whitespace-nowrap" id="masterRank_${st.id}">
+                    <td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] whitespace-nowrap" id="masterRank_${st.id}">
                         ${rank ? `<span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${rank === 1 ? 'bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]' : 'bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]'}">${rank}</span>` : '—'}
                     </td>
-                    <td class="py-2 px-3.5 text-left border-l border-[#D8DEE8] whitespace-nowrap" id="masterQual_${st.id}">
+                    <td class="py-2.5 px-4 text-left border-l border-[#D8DEE8] whitespace-nowrap" id="masterQual_${st.id}">
                         ${qualBadge}
                     </td>
                 </tr>
-            `;
-        }).join('');
+            `);
+        });
+
+        const bodyRowsHtml = bodyRowsChunks.join('');
 
         container.innerHTML = `
             <div class="px-4 py-3 bg-[#F5F7FA] border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 shrink-0">
@@ -2109,7 +2372,7 @@ const App = (() => {
                 ? 'text-[#64748B]'
                 : isFailingOverall
                     ? 'text-[#842D60]'
-                    : avg >= GRADING_POLICY.honorAverage
+                    : meetsHonorAveragePolicy(avg)
                         ? 'text-[#0F766E]'
                         : 'text-[#17243A]';
             avgCell.innerHTML = `<span class="font-display font-bold text-sm ${avgColor}">${avg !== null ? avg.toFixed(2) : '—'}</span>`;
@@ -2121,12 +2384,13 @@ const App = (() => {
                 qualCell.innerHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]"><span>&#10005;</span><span>Failed: ${escapeHtml(failingCodes.join(', ') || avg?.toFixed(2))}</span></span>`;
             } else if (!isComplete) {
                 qualCell.innerHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]"><span>&#9203;</span><span>Pending (${gradedCount}/${inputs.length})</span></span>`;
-            } else if (!hasBelow85 && avg !== null && avg >= (GRADING_POLICY.honorAverage - 0.0001)) {
-                qualCell.innerHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>QUALIFIED (≥90 &amp; No &lt;85)</span></span>`;
+            } else if (!hasBelow85 && meetsHonorAveragePolicy(avg)) {
+                const roundText = (avg !== null && avg < 90) ? ' (Rounds to 90)' : '';
+                qualCell.innerHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>QUALIFIED (≥90${roundText} &amp; No &lt;85)</span></span>`;
             } else if (hasBelow85) {
                 qualCell.innerHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]"><span>&#9888;</span><span>Passed · Below 85: ${escapeHtml(below85Codes.join(', '))}</span></span>`;
             } else {
-                qualCell.innerHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>Passed · Avg ${avg.toFixed(2)} (&lt;90)</span></span>`;
+                qualCell.innerHTML = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>&#10003;</span><span>Passed · Avg ${avg.toFixed(2)} (&lt;89.5)</span></span>`;
             }
         }
 
@@ -2196,6 +2460,71 @@ const App = (() => {
         renderGradingView();
     }
 
+    function getHonorDistinction(avg) {
+        if (avg === null || avg === undefined || isNaN(Number(avg))) return '';
+        const n = Number(avg);
+        if (n >= 97.995) return 'With Highest Honors';
+        if (n >= 94.995) return 'With High Honors';
+        if (n >= 89.495) return 'With Honors';
+        return '';
+    }
+
+    function printInstitutionalHeaderHtml(title, subtitle, section, quarterTitle) {
+        const currentDate = new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        });
+        return `
+            <div class="hidden print-only-block mb-3 pb-3 border-b-2 border-slate-900 text-slate-900">
+                <div class="text-center">
+                    <p class="text-[9pt] uppercase tracking-widest font-semibold text-slate-600">Republic of the Philippines &bull; Department of Education</p>
+                    <h2 class="text-[13pt] font-black uppercase tracking-wider text-slate-900 font-display">GradeFlow Academic Management System</h2>
+                    <p class="text-[10pt] font-bold text-[#17243A] uppercase mt-0.5">${title}</p>
+                    <p class="text-[8pt] text-slate-600 italic mt-0.5">${subtitle}</p>
+                </div>
+                <div class="flex items-center justify-between text-[8pt] pt-2 border-t border-slate-300 mt-2 font-mono">
+                    <span><strong>Section:</strong> ${escapeHtml(section.section_name)} (${escapeHtml(section.year_level)})</span>
+                    <span><strong>Evaluation Period:</strong> ${escapeHtml(quarterTitle)}</span>
+                    <span><strong>Class Adviser:</strong> ${escapeHtml(section.adviser || 'Unassigned')}</span>
+                    <span><strong>Date Printed:</strong> ${currentDate}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function printSignatoriesHtml(adviserName = '') {
+        return `
+            <div class="hidden print-only-block print-signatories pt-5 text-slate-900">
+                <div class="grid grid-cols-3 gap-6 text-center text-[8.5pt]">
+                    <div>
+                        <p class="text-slate-600 mb-8">Prepared by:</p>
+                        <p class="font-bold border-b border-slate-900 pb-1 uppercase">${escapeHtml(adviserName || 'Class Adviser')}</p>
+                        <p class="text-slate-600 text-[7.5pt] mt-0.5">Class Adviser</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-600 mb-8">Verified &amp; Audited by:</p>
+                        <p class="font-bold border-b border-slate-900 pb-1 uppercase">Academic Coordinator</p>
+                        <p class="text-slate-600 text-[7.5pt] mt-0.5">Curriculum &amp; Instruction</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-600 mb-8">Approved by:</p>
+                        <p class="font-bold border-b border-slate-900 pb-1 uppercase">School Principal</p>
+                        <p class="text-slate-600 text-[7.5pt] mt-0.5">Head of Academic Affairs</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function printReport(target = 'all') {
+        document.body.setAttribute('data-print-target', target);
+        window.print();
+        setTimeout(() => {
+            document.body.removeAttribute('data-print-target');
+        }, 1200);
+    }
+
     function renderReportsView() {
         const secSelect = document.getElementById('reportSectionSelect');
         const qtrSelect = document.getElementById('reportQuarterSelect');
@@ -2246,32 +2575,43 @@ const App = (() => {
         const pulloutHtml = standings.qualifiers.length > 0
             ? `
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse text-sm">
+                    <table class="w-full text-left border-collapse text-sm print-table">
                         <thead>
                             <tr class="bg-[#D5F0EA]/60 border-b border-[#99D8CC] text-xs font-bold uppercase tracking-wider text-[#0F766E]">
-                                <th class="py-2.5 px-3.5">Rank</th>
-                                <th class="py-2.5 px-3.5">Student ID</th>
+                                <th class="py-2.5 px-3 text-center">Rank</th>
+                                <th class="py-2.5 px-3">Student ID</th>
                                 <th class="py-2.5 px-3.5">Student Name</th>
-                                <th class="py-2.5 px-3.5">Subject Grades (All Verified &ge; 85)</th>
-                                <th class="py-2.5 px-3.5 text-center">Lowest Subject Grade</th>
-                                <th class="py-2.5 px-3.5 text-center">Weighted Average (&ge; 90)</th>
+                                <th class="py-2.5 px-3 text-center">Honor Distinction</th>
+                                <th class="py-2.5 px-3">Subject Grades (All &ge; 85)</th>
+                                <th class="py-2.5 px-3 text-center">Lowest Grade</th>
+                                <th class="py-2.5 px-3 text-center">General Average</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[#D8DEE8]/70 text-sm bg-white">
-                            ${standings.qualifiers.map(q => `
+                            ${standings.qualifiers.map(q => {
+                                const distinction = getHonorDistinction(q.weightedAverage);
+                                return `
                                 <tr class="hover:bg-[#D5F0EA]/25 transition">
-                                    <td class="py-2.5 px-3.5 whitespace-nowrap">
-                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#17243A] text-white shadow-2xs">
+                                    <td class="py-2.5 px-3 whitespace-nowrap text-center">
+                                        <span class="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#17243A] text-white shadow-2xs">
                                             Rank #${q.rank}
                                         </span>
                                     </td>
-                                    <td class="py-2.5 px-3.5 font-mono text-xs font-semibold text-[#64748B] whitespace-nowrap">
+                                    <td class="py-2.5 px-3 font-mono text-xs font-semibold text-[#64748B] whitespace-nowrap">
                                         ${escapeHtml(q.student.student_no)}
                                     </td>
                                     <td class="py-2.5 px-3.5 font-display font-bold text-[#17243A] whitespace-nowrap">
-                                        ${escapeHtml(q.student.full_name)}
+                                        <div class="flex items-center gap-2">
+                                            <span>${escapeHtml(q.student.full_name)}</span>
+                                            ${genderBadgeHtml(q.student.gender, true)}
+                                        </div>
                                     </td>
-                                    <td class="py-2.5 px-3.5">
+                                    <td class="py-2.5 px-3 text-center whitespace-nowrap">
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">
+                                            🎖️ ${escapeHtml(distinction || 'With Honors')}
+                                        </span>
+                                    </td>
+                                    <td class="py-2.5 px-3">
                                         <div class="flex flex-wrap gap-1.5">
                                             ${q.subjectResults.map(sr => `
                                                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">
@@ -2282,18 +2622,22 @@ const App = (() => {
                                             `).join('')}
                                         </div>
                                     </td>
-                                    <td class="py-2.5 px-3.5 text-center whitespace-nowrap">
+                                    <td class="py-2.5 px-3 text-center whitespace-nowrap">
                                         <span class="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">
-                                            &#10003; ${q.minGrade !== null ? q.minGrade.toFixed(2) : '—'} (${escapeHtml(q.minGradeSubject || '')}) &ge; 85
+                                            &#10003; ${q.minGrade !== null ? q.minGrade.toFixed(0) : '—'} (${escapeHtml(q.minGradeSubject || '')}) &ge; 85
                                         </span>
                                     </td>
-                                    <td class="py-2.5 px-3.5 text-center whitespace-nowrap">
-                                        <span class="font-display font-extrabold text-sm text-[#0F766E] bg-[#D5F0EA] px-3 py-1 rounded-xl border border-[#99D8CC]">
-                                            ${q.weightedAverage.toFixed(2)}
-                                        </span>
+                                    <td class="py-2.5 px-3 text-center whitespace-nowrap">
+                                        <div class="inline-flex flex-col items-center">
+                                            <span class="font-display font-extrabold text-sm text-[#0F766E] bg-[#D5F0EA] px-3 py-1 rounded-xl border border-[#99D8CC]">
+                                                ${q.weightedAverage.toFixed(2)}${q.weightedAverage < 90 ? ` &rarr; ${Math.round(q.weightedAverage)}` : ''}
+                                            </span>
+                                            ${q.weightedAverage < 90 ? `<span class="text-xs font-bold text-[#0F766E] mt-0.5">Rounds to 90</span>` : ''}
+                                        </div>
                                     </td>
                                 </tr>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </tbody>
                     </table>
                 </div>
@@ -2301,7 +2645,7 @@ const App = (() => {
             : `
                 <div class="p-6 text-center bg-white">
                     <p class="text-sm font-semibold text-[#17243A]">No students currently meet both qualification criteria for ${escapeHtml(quarterTitle)}</p>
-                    <p class="text-xs text-[#64748B] mt-1">To be pulled out here, a student must have complete grades in all assigned subjects, <strong>no subject grade below 85</strong>, and a <strong>weighted average of 90.00 or above</strong>.</p>
+                    <p class="text-xs text-[#64748B] mt-1">To be pulled out here, a student must have complete grades in all assigned subjects, <strong>no subject grade below 85</strong>, and a <strong>weighted average of 89.50 or above (which rounds to 90)</strong>.</p>
                 </div>
             `;
 
@@ -2317,8 +2661,7 @@ const App = (() => {
             `;
         }).join('');
 
-        const fullRankingRowsHtml = standings.rankedRows.length > 0
-            ? standings.rankedRows.map(r => {
+        const renderReportRankingRow = r => {
                 const subCells = r.subjectResults.map(sr => {
                     if (sr.grade === null) {
                         return `<td class="py-2 px-2 text-center text-xs text-[#64748B] border-l border-[#D8DEE8]/50">—</td>`;
@@ -2359,9 +2702,10 @@ const App = (() => {
                         <span>${escapeHtml(r.statusReason)}</span>
                        </span>`;
                 } else if (r.isQualified) {
+                    const roundNote = r.weightedAverage < 90 ? ' (Rounds to 90)' : '';
                     badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">
                         <span>&#10003;</span>
-                        <span>Passed &bull; Honor Pulled Out (Avg &ge; 90 &amp; No &lt; 85)</span>
+                        <span>Passed &bull; Honor Pulled Out (Avg &ge; 90${roundNote} &amp; No &lt; 85)</span>
                        </span>`;
                 } else if (r.hasBelow85) {
                     badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]">
@@ -2392,7 +2736,7 @@ const App = (() => {
                     ? 'text-[#64748B]'
                     : r.isFailingOverall
                         ? 'text-[#842D60]'
-                        : r.weightedAverage >= GRADING_POLICY.honorAverage
+                        : meetsHonorAveragePolicy(r.weightedAverage)
                             ? 'text-[#0F766E]'
                             : 'text-[#17243A]';
 
@@ -2406,7 +2750,10 @@ const App = (() => {
                             ` : '—'}
                         </td>
                         <td class="py-2 px-3.5 whitespace-nowrap">
-                            <div class="font-semibold text-[#17243A] text-sm">${escapeHtml(r.student.full_name)}</div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-semibold text-[#17243A] text-sm">${escapeHtml(r.student.full_name)}</span>
+                                ${genderBadgeHtml(r.student.gender, true)}
+                            </div>
                             <div class="font-mono text-xs text-[#64748B]">${escapeHtml(r.student.student_no)} &bull; Row ${r.excel_row}</div>
                         </td>
                         ${subCells}
@@ -2426,12 +2773,31 @@ const App = (() => {
                         </td>
                     </tr>
                 `;
-            }).join('')
-            : `<tr><td colspan="${standings.subjects.length + 6}" class="py-10 text-center text-sm text-[#64748B]">No students enrolled in this section yet.</td></tr>`;
+            };
+
+        const fullRankingRowsHtml = (() => {
+            if (standings.rankedRows.length === 0) {
+                return `<tr><td colspan="${standings.subjects.length + 6}" class="py-10 text-center text-sm text-[#64748B]">No students enrolled in this section yet.</td></tr>`;
+            }
+            const femaleRanked = standings.rankedRows.filter(r => normalizeGenderClient(r.student.gender) === 'Female');
+            const maleRanked = standings.rankedRows.filter(r => normalizeGenderClient(r.student.gender) === 'Male');
+            const totalReportCols = standings.subjects.length + 6;
+            const reportChunks = [];
+
+            if (femaleRanked.length > 0) {
+                reportChunks.push(genderSectionHeaderRowHtml('Female', femaleRanked.length, totalReportCols, `${activeSection.section_name} • Ranked Female Students`));
+                femaleRanked.forEach(r => reportChunks.push(renderReportRankingRow(r)));
+            }
+            if (maleRanked.length > 0) {
+                reportChunks.push(genderSectionHeaderRowHtml('Male', maleRanked.length, totalReportCols, `${activeSection.section_name} • Ranked Male Students`));
+                maleRanked.forEach(r => reportChunks.push(renderReportRankingRow(r)));
+            }
+            return reportChunks.join('');
+        })();
 
         container.innerHTML = `
-            <!-- Report Summary Header Card (Midnight Navy #17243A) -->
-            <div class="bg-[#17243A] text-white rounded-2xl p-4 sm:p-5 shadow-sm shrink-0">
+            <!-- Screen-Only Report Summary Header Card (Midnight Navy #17243A) -->
+            <div class="bg-[#17243A] text-white rounded-2xl p-4 sm:p-5 shadow-sm shrink-0 no-print">
                 <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                     <div>
                         <div class="flex items-center gap-2.5 flex-wrap">
@@ -2466,9 +2832,15 @@ const App = (() => {
                 </div>
             </div>
 
-            <!-- AUTOMATED PULLOUT CARD: NO GRADE BELOW 85 & WEIGHTED AVERAGE >= 90 (Deep Teal #0F766E) -->
-            <div class="bg-white rounded-2xl border-2 border-[#0F766E] shadow-2xs overflow-hidden shrink-0">
-                <div class="px-4 py-3 bg-[#0F766E] text-white flex flex-wrap items-center justify-between gap-2">
+            <!-- PART 1: QUARTERLY HONOR ROLL & DISTINCTION ROSTER (Page 1) -->
+            <div id="printHonorsSection" class="bg-white rounded-2xl border-2 border-[#0F766E] shadow-2xs overflow-hidden shrink-0">
+                ${printInstitutionalHeaderHtml(
+                    'Official Academic Honors &amp; Distinction Roster',
+                    'Quarterly Academic Excellence Recognition &bull; Criteria: No Subject Grade Below 85 &bull; General Average &ge; 90.00 (or 89.50+ Rounded to 90)',
+                    activeSection,
+                    quarterTitle
+                )}
+                <div class="px-4 py-3 bg-[#0F766E] text-white flex flex-wrap items-center justify-between gap-2 no-print">
                     <div class="flex items-center gap-3">
                         <div class="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
                             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
@@ -2477,10 +2849,10 @@ const App = (() => {
                         </div>
                         <div>
                             <h4 class="font-display font-bold text-sm sm:text-base">
-                                Quarterly Honor Pullout — Students with Average &ge; 90 &amp; No Grade Below 85
+                                Quarterly Honor Pullout — Students with Average &ge; 90 (or 89.5+ Rounded to 90) &amp; No Grade Below 85
                             </h4>
                             <p class="text-xs text-[#D5F0EA]">
-                                Automatically filtered from ${escapeHtml(activeSection.section_name)} (${escapeHtml(quarterTitle)}) where every subject &ge; 85 and Weighted Average &ge; 90.00
+                                Automatically filtered from ${escapeHtml(activeSection.section_name)} (${escapeHtml(quarterTitle)}) where every subject &ge; 85 and Weighted Average &ge; 89.50 (rounds to 90)
                             </p>
                         </div>
                     </div>
@@ -2489,11 +2861,21 @@ const App = (() => {
                     </span>
                 </div>
                 ${pulloutHtml}
+                ${printSignatoriesHtml(activeSection.adviser)}
             </div>
 
-            <!-- COMPLETE SECTION QUARTERLY RANKING & COMPUTATION TABLE -->
-            <div class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden">
-                <div class="px-4 py-3 bg-[#F5F7FA] border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <!-- CLEAN PAGE BREAK FOR PRINTING/PDF EXPORT -->
+            <div class="print-page-break"></div>
+
+            <!-- PART 2: COMPLETE SECTION QUARTERLY RANKING & COMPUTATION MASTER SHEET (Page 2+) -->
+            <div id="printMasterGradesSection" class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden">
+                ${printInstitutionalHeaderHtml(
+                    'Master Quarterly Grade Sheet &amp; General Section Ranking',
+                    `Official Section Records &bull; Weighted Formula: ${escapeHtml(standings.formulaString)}`,
+                    activeSection,
+                    quarterTitle
+                )}
+                <div class="px-4 py-3 bg-[#F5F7FA] border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 shrink-0 no-print">
                     <div>
                         <h4 class="font-display font-bold text-[#17243A] text-sm sm:text-base">
                             Complete Section Quarterly Computation &amp; Ranking (${escapeHtml(quarterTitle)})
@@ -2504,7 +2886,7 @@ const App = (() => {
                     </div>
                 </div>
                 <div class="flex-1 overflow-auto custom-scrollbar">
-                    <table class="w-full text-left border-collapse">
+                    <table class="w-full text-left border-collapse print-table">
                         <thead class="sticky top-0 z-10">
                             <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#64748B]">
                                 <th class="py-2.5 px-3 text-center">Rank</th>
@@ -2521,6 +2903,7 @@ const App = (() => {
                         </tbody>
                     </table>
                 </div>
+                ${printSignatoriesHtml(activeSection.adviser)}
             </div>
         `;
     }
@@ -2538,6 +2921,8 @@ const App = (() => {
         document.getElementById('studentSearchInput').value = '';
         document.getElementById('studentYearFilter').value = '';
         document.getElementById('studentSectionFilter').value = '';
+        const gf = document.getElementById('studentGenderFilter');
+        if (gf) gf.value = '';
         renderStudentsView();
     }
 
@@ -2933,16 +3318,31 @@ const App = (() => {
         const sectionId = Number(document.getElementById('assignSectionIdInput').value);
         if (!sectionId) return;
 
-        const assignments = [];
-        state.subjects.forEach(sub => {
+        const sec = state.sections.find(s => s.id === sectionId);
+        const existingOrderMap = {};
+        if (sec && sec.assigned_subjects) {
+            sec.assigned_subjects.forEach((as, idx) => {
+                existingOrderMap[as.subject_id] = idx + 1;
+            });
+        }
+
+        const checkedSubjects = state.subjects.filter(sub => state.assignDraftMap[sub.id]?.checked);
+        // Preserve previous custom order for already-assigned subjects; append new ones
+        checkedSubjects.sort((a, b) => {
+            const orderA = existingOrderMap[a.id] ?? 9999;
+            const orderB = existingOrderMap[b.id] ?? 9999;
+            if (orderA !== orderB) return orderA - orderB;
+            return a.subject_code.localeCompare(b.subject_code);
+        });
+
+        const assignments = checkedSubjects.map((sub, idx) => {
             const draft = state.assignDraftMap[sub.id];
-            if (draft && draft.checked) {
-                assignments.push({
-                    subject_id: sub.id,
-                    schedule: draft.schedule || '',
-                    instructor: draft.instructor || '',
-                });
-            }
+            return {
+                subject_id: sub.id,
+                schedule: draft.schedule || '',
+                instructor: draft.instructor || '',
+                sort_order: idx + 1,
+            };
         });
 
         const btn = document.getElementById('assignSubjectsSubmitBtn');
@@ -2973,6 +3373,191 @@ const App = (() => {
             showToast(res.message, 'info');
         } catch (err) {
             showToast(err.message, 'error');
+        }
+    }
+
+    // ==================== REORDER SECTION SUBJECTS CONTROLLER ====================
+    function openReorderSubjectsModal(sectionId = null) {
+        let secId = Number(sectionId);
+        if (!secId) {
+            secId = Number(state.gradingSectionId) || Number(state.dashboardSectionId) || (state.sections[0]?.id ?? 0);
+        }
+        const sec = state.sections.find(s => s.id === secId);
+        if (!sec) {
+            showToast('Please select or create a section first.', 'error');
+            return;
+        }
+
+        state.reorderSectionId = sec.id;
+        document.getElementById('reorderSectionIdInput').value = sec.id;
+        document.getElementById('reorderModalTitle').textContent = `Order Subjects — ${sec.section_name} (${sec.year_level})`;
+
+        // Clone current assigned subjects in order
+        state.reorderDraftList = (sec.assigned_subjects || []).map(s => ({ ...s }));
+
+        renderReorderSubjectsList();
+        openModal('reorderSubjectsModal');
+    }
+
+    function openReorderFromAssignModal() {
+        const secId = Number(document.getElementById('assignSectionIdInput')?.value);
+        if (!secId) return;
+        closeModal('assignSubjectsModal');
+        openReorderSubjectsModal(secId);
+    }
+
+    function renderReorderSubjectsList() {
+        const container = document.getElementById('reorderSubjectsListContainer');
+        const previewEl = document.getElementById('reorderFormulaPreview');
+        if (!container) return;
+
+        const list = state.reorderDraftList || [];
+        const total = list.length;
+
+        if (total === 0) {
+            container.innerHTML = `
+                <div class="p-8 text-center bg-[#F5F7FA] rounded-xl border border-dashed border-[#D8DEE8]">
+                    <p class="text-sm font-semibold text-[#17243A]">No subjects assigned to this section yet</p>
+                    <p class="text-xs text-[#64748B] mt-1">Assign subjects to this section first to configure their input order.</p>
+                </div>
+            `;
+            if (previewEl) previewEl.textContent = 'No subjects';
+            return;
+        }
+
+        container.innerHTML = list.map((sub, idx) => {
+            const col = excelColLetter(idx);
+            const isFirst = idx === 0;
+            const isLast = idx === total - 1;
+
+            const posOptions = list.map((_, pIdx) => `
+                <option value="${pIdx}" ${pIdx === idx ? 'selected' : ''}>
+                    Position ${pIdx + 1} (${excelColLetter(pIdx)}) ${pIdx === 0 ? '— 1st Input' : ''}
+                </option>
+            `).join('');
+
+            return `
+                <div class="flex items-center justify-between gap-3 p-3 rounded-xl border ${
+                    isFirst
+                        ? 'bg-[#EBF1F8] border-[#5276A7]/40 shadow-2xs'
+                        : 'bg-white border-[#D8DEE8] hover:border-[#B8CCE6]'
+                } transition">
+                    <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                        <!-- Excel Column & Position Badge -->
+                        <div class="inline-flex flex-col items-center justify-center w-12 h-11 rounded-lg ${
+                            isFirst ? 'bg-[#17243A] text-white' : 'bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]'
+                        } font-mono shrink-0">
+                            <span class="text-xs font-bold leading-none">Col ${col}</span>
+                            <span class="text-xs opacity-75 mt-0.5">${idx === 0 ? '1st' : (idx + 1) + 'th'}</span>
+                        </div>
+
+                        <!-- Subject Info -->
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-bold text-[#17243A] text-sm">${escapeHtml(sub.subject_code)}</span>
+                                <span class="text-xs font-semibold text-[#0F766E] bg-[#D5F0EA] px-2 py-0.5 rounded-full border border-[#99D8CC]">
+                                    *${formatUnits(sub.units)} units
+                                </span>
+                                ${isFirst ? '<span class="text-xs font-extrabold uppercase tracking-wider text-[#2C4870] bg-white px-2 py-0.5 rounded border border-[#C5D5EA]">★ First to Input</span>' : ''}
+                            </div>
+                            <p class="text-xs text-[#64748B] truncate mt-0.5">${escapeHtml(sub.subject_name)}</p>
+                        </div>
+                    </div>
+
+                    <!-- Order Adjustment Controls: Position Select & Move Up / Down Buttons -->
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <select onchange="App.setSubjectPositionInDraft(${idx}, Number(this.value))"
+                            aria-label="Set position for ${escapeHtml(sub.subject_code)}"
+                            class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] outline-none cursor-pointer">
+                            ${posOptions}
+                        </select>
+
+                        <button type="button"
+                            onclick="App.moveSubjectInDraft(${idx}, -1)"
+                            ${isFirst ? 'disabled' : ''}
+                            class="p-1.5 rounded-lg border border-[#D8DEE8] bg-white text-[#17243A] hover:bg-[#EBF1F8] disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+                            title="Move Up (makes this subject input sooner)">
+                            ▲
+                        </button>
+
+                        <button type="button"
+                            onclick="App.moveSubjectInDraft(${idx}, 1)"
+                            ${isLast ? 'disabled' : ''}
+                            class="p-1.5 rounded-lg border border-[#D8DEE8] bg-white text-[#17243A] hover:bg-[#EBF1F8] disabled:opacity-30 disabled:pointer-events-none transition cursor-pointer"
+                            title="Move Down (makes this subject input later)">
+                            ▼
+                        </button>
+
+                        ${!isFirst ? `
+                            <button type="button"
+                                onclick="App.moveSubjectToTopInDraft(${idx})"
+                                class="px-2 py-1 rounded-lg text-xs font-bold border border-[#C5D5EA] bg-[#EBF1F8] text-[#2C4870] hover:bg-[#D8E4F3] transition cursor-pointer"
+                                title="Make this subject 1st to be input (Col E)">
+                                ⤒ 1st
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        if (previewEl) {
+            previewEl.textContent = buildSectionFormulaString(list, 21);
+        }
+    }
+
+    function moveSubjectInDraft(index, delta) {
+        const list = state.reorderDraftList;
+        const target = index + delta;
+        if (target < 0 || target >= list.length) return;
+        const temp = list[index];
+        list[index] = list[target];
+        list[target] = temp;
+        renderReorderSubjectsList();
+    }
+
+    function moveSubjectToTopInDraft(index) {
+        const list = state.reorderDraftList;
+        if (index <= 0 || index >= list.length) return;
+        const [item] = list.splice(index, 1);
+        list.unshift(item);
+        renderReorderSubjectsList();
+    }
+
+    function setSubjectPositionInDraft(oldIndex, newIndex) {
+        const list = state.reorderDraftList;
+        if (oldIndex < 0 || oldIndex >= list.length || newIndex < 0 || newIndex >= list.length || oldIndex === newIndex) return;
+        const [item] = list.splice(oldIndex, 1);
+        list.splice(newIndex, 0, item);
+        renderReorderSubjectsList();
+    }
+
+    function resetSubjectOrderToAlphabetical() {
+        state.reorderDraftList.sort((a, b) => a.subject_code.localeCompare(b.subject_code));
+        renderReorderSubjectsList();
+    }
+
+    async function saveSubjectOrder() {
+        const secId = state.reorderSectionId;
+        if (!secId) return;
+
+        const subjectIds = state.reorderDraftList.map(s => Number(s.subject_id));
+        const btn = document.getElementById('reorderSaveBtn');
+        if (btn) btn.disabled = true;
+
+        try {
+            const res = await apiRequest('reorder_section_subjects', {
+                section_id: secId,
+                subject_ids: subjectIds,
+            });
+            applySystemState(res);
+            closeModal('reorderSubjectsModal');
+            const firstSub = state.reorderDraftList[0]?.subject_code || 'Selected subject';
+            showToast(`${firstSub} is now 1st to be input (Col E). Subject order saved!`, 'success');
+        } catch (err) {
+            showToast(err.message, 'error');
+        } finally {
+            if (btn) btn.disabled = false;
         }
     }
 
@@ -3037,13 +3622,40 @@ const App = (() => {
 
     let studentModalMode = 'single';
 
-    function parseBulkStudentLineClient(rawLine) {
+    function detectBulkGenderHeaderClient(rawLine) {
+        let line = String(rawLine || '').trim();
+        line = line.replace(/^[\[\(\-#*]+\s*|\s*[\]\)\-:]+$/g, '').trim().toLowerCase();
+        if (['female', 'females', 'female students', 'girls'].includes(line)) {
+            return 'Female';
+        }
+        if (['male', 'males', 'male students', 'boys'].includes(line)) {
+            return 'Male';
+        }
+        return null;
+    }
+
+    function parseBulkStudentLineClient(rawLine, defaultGender = 'Female') {
         let line = String(rawLine || '').trim();
         if (!line) return null;
 
         // Strip optional list numbering at the start like "1. " or "1) " or "- "
         line = line.replace(/^(?:\d{1,3}[\.\)]\s+|[-•*]\s+)/, '').trim();
         if (!line) return null;
+
+        let gender = normalizeGenderClient(defaultGender);
+        const trailingGenderMatch = line.match(/[\|\t;]\s*(female|male|f|m|girl|boy)\s*$/i);
+        if (trailingGenderMatch) {
+            const gTok = trailingGenderMatch[1].toLowerCase();
+            gender = (gTok === 'm' || gTok === 'male' || gTok === 'boy') ? 'Male' : 'Female';
+            line = line.replace(/[\|\t;]\s*(female|male|f|m|girl|boy)\s*$/i, '').trim();
+        } else {
+            const leadingGenderMatch = line.match(/^(female|male|f|m)\s*[\|\t:]\s*(.+)$/i);
+            if (leadingGenderMatch) {
+                const gTok = leadingGenderMatch[1].toLowerCase();
+                gender = (gTok === 'm' || gTok === 'male') ? 'Male' : 'Female';
+                line = leadingGenderMatch[2].trim();
+            }
+        }
 
         let studentNo = '';
         let namePart = line;
@@ -3133,6 +3745,7 @@ const App = (() => {
             first_name: firstName,
             middle_name: middleName,
             last_name: lastName,
+            gender,
             full_name: `${lastName}, ${firstName}${middleName ? ' ' + middleName : ''}`,
         };
     }
@@ -3186,17 +3799,39 @@ const App = (() => {
         const badge = document.getElementById('bulkStudentLineCountBadge');
         const previewList = document.getElementById('bulkStudentsPreviewList');
         const submitBtn = document.getElementById('studentSubmitBtn');
+        const defaultGenderSelect = document.getElementById('bulkStudentGenderInput');
         if (!textarea || !badge || !previewList) return;
 
+        let activeGender = normalizeGenderClient(defaultGenderSelect?.value || 'Female');
         const rawLines = textarea.value.split(/\r\n|\r|\n/).map(l => l.trim()).filter(Boolean);
-        const parsedItems = rawLines.map((line, idx) => ({
-            lineNum: idx + 1,
-            raw: line,
-            parsed: parseBulkStudentLineClient(line),
-        }));
+        const parsedItems = [];
 
-        const validCount = parsedItems.filter(item => item.parsed !== null).length;
-        badge.textContent = `${validCount} student${validCount === 1 ? '' : 's'} detected`;
+        rawLines.forEach((line, idx) => {
+            const headerGender = detectBulkGenderHeaderClient(line);
+            if (headerGender) {
+                activeGender = headerGender;
+                parsedItems.push({
+                    lineNum: idx + 1,
+                    raw: line,
+                    isHeader: true,
+                    headerGender,
+                    parsed: null,
+                });
+                return;
+            }
+            parsedItems.push({
+                lineNum: idx + 1,
+                raw: line,
+                isHeader: false,
+                parsed: parseBulkStudentLineClient(line, activeGender),
+            });
+        });
+
+        const validItems = parsedItems.filter(item => item.parsed !== null);
+        const validCount = validItems.length;
+        const femaleCount = validItems.filter(item => item.parsed.gender === 'Female').length;
+        const maleCount = validItems.filter(item => item.parsed.gender === 'Male').length;
+        badge.textContent = `${validCount} student${validCount === 1 ? '' : 's'} (${femaleCount}F · ${maleCount}M)`;
 
         if (submitBtn && studentModalMode === 'bulk') {
             submitBtn.textContent = validCount > 0
@@ -3210,6 +3845,14 @@ const App = (() => {
         }
 
         previewList.innerHTML = parsedItems.map(item => {
+            if (item.isHeader) {
+                const isFem = item.headerGender === 'Female';
+                return `
+                    <div class="py-1 px-2 rounded ${isFem ? 'bg-[#FDF2F8] text-[#9D174D]' : 'bg-[#EFF6FF] text-[#1E40AF]'} text-xs font-extrabold uppercase tracking-wider">
+                        ${isFem ? '&#9792; Female Group Header' : '&#9794; Male Group Header'}
+                    </div>
+                `;
+            }
             if (!item.parsed) {
                 return `
                     <div class="py-1.5 flex items-center justify-between gap-2 text-[#842D60]">
@@ -3224,6 +3867,7 @@ const App = (() => {
                     <div class="flex items-center gap-2 min-w-0">
                         <span class="font-mono text-[#64748B]">#${item.lineNum}</span>
                         <span class="font-semibold text-[#17243A] truncate">${escapeHtml(p.full_name)}</span>
+                        ${genderBadgeHtml(p.gender, true)}
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
                         <span class="px-2 py-0.5 rounded bg-white border border-[#D8DEE8] text-[#17243A] font-mono">
@@ -3242,10 +3886,12 @@ const App = (() => {
         const textarea = document.getElementById('bulkStudentsTextarea');
         if (!textarea) return;
         const sampleLines = [
-            'Dela Cruz, Juan M.',
+            'Female:',
             'Villanueva, Angela R.',
-            'Mark Anthony S. Mendoza',
             'Bautista, Sophia L.',
+            'Male:',
+            'Dela Cruz, Juan M.',
+            'Mark Anthony S. Mendoza',
             'Gabriel T. Soriano',
         ];
         textarea.value = textarea.value.trim()
@@ -3263,6 +3909,8 @@ const App = (() => {
         if (bulkTextarea) bulkTextarea.value = '';
 
         const modeToggle = document.getElementById('studentModalModeToggle');
+        const singleGenderInput = document.getElementById('studentGenderInput');
+        const bulkGenderInput = document.getElementById('bulkStudentGenderInput');
 
         if (studentId) {
             const st = state.students.find(s => s.id === Number(studentId));
@@ -3275,12 +3923,15 @@ const App = (() => {
             document.getElementById('studentFirstNameInput').value = st.first_name;
             document.getElementById('studentMiddleNameInput').value = st.middle_name || '';
             document.getElementById('studentLastNameInput').value = st.last_name;
+            if (singleGenderInput) singleGenderInput.value = normalizeGenderClient(st.gender);
             document.getElementById('studentStatusInput').value = st.status || 'Active';
             document.getElementById('studentYearLevelSelect').value = st.year_level;
             populateStudentModalSections(st.year_level, st.section_id);
         } else {
             modeToggle?.classList.remove('hidden');
             document.getElementById('studentModalTitle').textContent = mode === 'bulk' ? 'Bulk Add Students (1 per Line)' : 'Enroll New Student';
+            if (singleGenderInput) singleGenderInput.value = 'Female';
+            if (bulkGenderInput) bulkGenderInput.value = 'Female';
             document.getElementById('studentStatusInput').value = 'Active';
 
             if (preselectedSectionId) {
@@ -3317,6 +3968,7 @@ const App = (() => {
         try {
             if (!id && studentModalMode === 'bulk') {
                 const students_text = (document.getElementById('bulkStudentsTextarea')?.value || '').trim();
+                const gender = normalizeGenderClient(document.getElementById('bulkStudentGenderInput')?.value || 'Female');
                 if (!students_text) {
                     showToast('Please enter at least one student name (1 student per line).', 'error');
                     btn.disabled = false;
@@ -3326,6 +3978,7 @@ const App = (() => {
                     students_text,
                     section_id,
                     year_level,
+                    gender,
                     status,
                 });
                 applySystemState(res);
@@ -3336,6 +3989,7 @@ const App = (() => {
                 const first_name = document.getElementById('studentFirstNameInput').value.trim();
                 const middle_name = document.getElementById('studentMiddleNameInput').value.trim();
                 const last_name = document.getElementById('studentLastNameInput').value.trim();
+                const gender = normalizeGenderClient(document.getElementById('studentGenderInput')?.value || 'Female');
 
                 const res = await apiRequest('save_student', {
                     id: id || null,
@@ -3343,6 +3997,7 @@ const App = (() => {
                     first_name,
                     middle_name,
                     last_name,
+                    gender,
                     section_id,
                     year_level,
                     status,
@@ -3418,6 +4073,7 @@ const App = (() => {
         document.getElementById('studentSearchInput')?.addEventListener('input', renderStudentsView);
         document.getElementById('studentYearFilter')?.addEventListener('change', renderStudentsView);
         document.getElementById('studentSectionFilter')?.addEventListener('change', renderStudentsView);
+        document.getElementById('studentGenderFilter')?.addEventListener('change', renderStudentsView);
 
         // Grading View Selectors
         document.getElementById('gradingSectionSelect')?.addEventListener('change', e => {
@@ -3434,6 +4090,7 @@ const App = (() => {
             renderGradingView();
         });
         document.getElementById('gradingStudentSearchInput')?.addEventListener('input', renderGradingView);
+        document.getElementById('gradingGenderFilter')?.addEventListener('change', renderGradingView);
 
         // Reports View Selectors
         document.getElementById('reportSectionSelect')?.addEventListener('change', e => {
@@ -3462,7 +4119,7 @@ const App = (() => {
                 return;
             }
             if (e.key === 'Escape') {
-                ['confirmModal', 'subjectModal', 'assignSubjectsModal', 'sectionModal', 'studentModal'].forEach(id => {
+                ['confirmModal', 'subjectModal', 'assignSubjectsModal', 'reorderSubjectsModal', 'sectionModal', 'studentModal'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el && !el.classList.contains('hidden')) {
                         closeModal(id);
@@ -3489,6 +4146,13 @@ const App = (() => {
         openSubjectModal,
         confirmDeleteSubject,
         openAssignSubjectsModal,
+        openReorderSubjectsModal,
+        openReorderFromAssignModal,
+        moveSubjectInDraft,
+        moveSubjectToTopInDraft,
+        setSubjectPositionInDraft,
+        resetSubjectOrderToAlphabetical,
+        saveSubjectOrder,
         onAssignCheckboxChange,
         onAssignMetaChange,
         toggleAllAssignSubjects,
@@ -3516,9 +4180,11 @@ const App = (() => {
         openSectionReport,
         openGradingForReportSection,
         setDashboardSection,
+        setDashboardGenderFilter,
         setDashboardPageSize,
         setDashboardPage,
         onDashboardStudentSearch,
         openDashboardActiveSectionStudentModal,
+        printReport,
     };
 })();

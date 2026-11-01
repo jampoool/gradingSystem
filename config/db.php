@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_PASS', 'root');
 define('DB_NAME', 'gradingsystem');
 
 function getDBConnection(): PDO
@@ -98,6 +98,7 @@ function ensureSchema(PDO $pdo): void
             `subject_id` INT UNSIGNED NOT NULL,
             `schedule` VARCHAR(120) DEFAULT NULL,
             `instructor` VARCHAR(120) DEFAULT NULL,
+            `sort_order` INT UNSIGNED NOT NULL DEFAULT 0,
             `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY `uq_section_subject` (`section_id`, `subject_id`),
             CONSTRAINT `fk_ss_section` FOREIGN KEY (`section_id`) REFERENCES `sections` (`id`) ON DELETE CASCADE,
@@ -111,6 +112,7 @@ function ensureSchema(PDO $pdo): void
             `middle_name` VARCHAR(100) DEFAULT NULL,
             `last_name` VARCHAR(100) NOT NULL,
             `full_name` VARCHAR(255) NOT NULL,
+            `gender` ENUM('Female', 'Male') NOT NULL DEFAULT 'Female',
             `year_level` VARCHAR(50) NOT NULL,
             `section_id` INT UNSIGNED NOT NULL,
             `status` ENUM('Active', 'Irregular', 'Inactive') NOT NULL DEFAULT 'Active',
@@ -134,4 +136,16 @@ function ensureSchema(PDO $pdo): void
             CONSTRAINT `fk_sg_subject` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ");
+
+    // Ensure `gender` column exists on existing `students` table
+    $colCheck = $pdo->query("SHOW COLUMNS FROM `students` LIKE 'gender'");
+    if ($colCheck && $colCheck->rowCount() === 0) {
+        $pdo->exec("ALTER TABLE `students` ADD COLUMN `gender` ENUM('Female', 'Male') NOT NULL DEFAULT 'Female' AFTER `full_name`");
+    }
+
+    // Ensure `sort_order` column exists on existing `section_subjects` table
+    $orderCheck = $pdo->query("SHOW COLUMNS FROM `section_subjects` LIKE 'sort_order'");
+    if ($orderCheck && $orderCheck->rowCount() === 0) {
+        $pdo->exec("ALTER TABLE `section_subjects` ADD COLUMN `sort_order` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `instructor`");
+    }
 }

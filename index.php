@@ -299,6 +299,12 @@ require_once __DIR__ . '/includes/header.php';
                                 <option value="">All Sections</option>
                             </select>
 
+                            <select id="studentGenderFilter" aria-label="Filter students by gender" class="px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                <option value="">All (Female &amp; Male)</option>
+                                <option value="Female">Female Only</option>
+                                <option value="Male">Male Only</option>
+                            </select>
+
                             <button type="button" id="resetStudentFiltersBtn" onclick="App.resetStudentFilters()" class="hidden px-3.5 py-2.5 text-xs font-semibold text-[#64748B] hover:text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8]/60 rounded-xl transition cursor-pointer">
                                 Reset
                             </button>
@@ -327,6 +333,7 @@ require_once __DIR__ . '/includes/header.php';
                                     <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#64748B]">
                                         <th class="py-3.5 px-4">Student ID</th>
                                         <th class="py-3.5 px-4">Full Name</th>
+                                        <th class="py-3.5 px-4">Gender</th>
                                         <th class="py-3.5 px-4">Year Level</th>
                                         <th class="py-3.5 px-4">Section</th>
                                         <th class="py-3.5 px-4">Enrolled Subjects (From Section)</th>
@@ -397,8 +404,16 @@ require_once __DIR__ . '/includes/header.php';
 
                         <!-- Subject Quick-Switch Tabs & Quick Fill Bar -->
                         <div class="pt-3 border-t border-[#D8DEE8] flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-                            <div id="gradingSubjectTabs" class="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 flex-1">
-                                <!-- Populated by JS -->
+                            <div class="flex items-center gap-2 flex-1 min-w-0">
+                                <button type="button" onclick="App.openReorderSubjectsModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#EBF1F8] text-[#2C4870] hover:bg-[#D8E4F3] border border-[#C5D5EA] transition cursor-pointer whitespace-nowrap shrink-0 shadow-2xs" title="Customize which subject comes first (Col E), second, etc.">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+                                    </svg>
+                                    <span>Order Subjects</span>
+                                </button>
+                                <div id="gradingSubjectTabs" class="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 flex-1">
+                                    <!-- Populated by JS -->
+                                </div>
                             </div>
 
                             <div class="flex flex-wrap items-center gap-2 shrink-0">
@@ -408,6 +423,12 @@ require_once __DIR__ . '/includes/header.php';
                                     </svg>
                                     <input type="text" id="gradingStudentSearchInput" placeholder="Filter student..." class="pl-9 pr-3 py-1.5 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] outline-none w-44 sm:w-52">
                                 </div>
+
+                                <select id="gradingGenderFilter" aria-label="Filter grade sheet by gender" class="px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] outline-none">
+                                    <option value="">All (Female &amp; Male)</option>
+                                    <option value="Female">Female Only</option>
+                                    <option value="Male">Male Only</option>
+                                </select>
 
                                 <div class="inline-flex items-center gap-1 bg-[#F5F7FA] px-2.5 py-1.5 rounded-xl border border-[#D8DEE8] text-xs">
                                     <span class="text-[#64748B] font-semibold mr-1">Fill Empty:</span>
@@ -438,8 +459,8 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
                     </div>
 
-                    <!-- Grade Sheet Container (Stretches to Fill Remaining Height) -->
-                    <div id="gradingSheetContainer" class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden">
+                    <!-- Grade Sheet Container (Substantially Longer Table with Generous Vertical & Horizontal Space) -->
+                    <div id="gradingSheetContainer" class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-[680px] lg:min-h-[780px] overflow-hidden">
                         <!-- Populated by JS -->
                     </div>
                 </section>
@@ -467,18 +488,24 @@ require_once __DIR__ . '/includes/header.php';
                             </div>
                         </div>
 
-                        <div class="flex flex-wrap items-center gap-2.5">
-                            <button type="button" onclick="App.openGradingForReportSection()" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#5276A7] hover:bg-[#3E5F8A] transition cursor-pointer">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" onclick="App.openGradingForReportSection()" class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#5276A7] hover:bg-[#3E5F8A] transition cursor-pointer">
                                 <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                                 </svg>
                                 <span>Edit Section Grades</span>
                             </button>
-                            <button type="button" onclick="window.print()" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer">
+                            <button type="button" onclick="App.printReport('honors')" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer" title="Print only the Official Academic Honors Certificate / Roster">
+                                <span>🎖️ Print Honors Only</span>
+                            </button>
+                            <button type="button" onclick="App.printReport('grades')" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#D8E4F3] border border-[#C5D5EA] transition cursor-pointer" title="Print only the Full Section Grade Sheet">
+                                <span>📋 Print Grade Sheet Only</span>
+                            </button>
+                            <button type="button" onclick="App.printReport('all')" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer" title="Print complete report with Honors on Page 1 and Grade Sheet on Page 2+">
                                 <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
                                 </svg>
-                                <span>Print Report</span>
+                                <span>Print Complete (Separated)</span>
                             </button>
                         </div>
                     </div>

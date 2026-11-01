@@ -208,8 +208,13 @@
                 </div>
 
                 <div class="pt-4 border-t border-[#D8DEE8] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div class="text-sm text-[#64748B]">
-                        Selected: <strong id="assignSelectedCount" class="text-[#17243A]">0</strong> subjects (Divisor: <strong id="assignSelectedUnits" class="text-[#0F766E]">0.0</strong> total units)
+                    <div class="flex items-center gap-2.5 flex-wrap">
+                        <div class="text-sm text-[#64748B]">
+                            Selected: <strong id="assignSelectedCount" class="text-[#17243A]">0</strong> subjects (Divisor: <strong id="assignSelectedUnits" class="text-[#0F766E]">0.0</strong> total units)
+                        </div>
+                        <button type="button" onclick="App.openReorderFromAssignModal()" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#D8E4F3] border border-[#C5D5EA] transition cursor-pointer" title="Adjust the order in which these subjects are input">
+                            <span>⇅ Subject Order</span>
+                        </button>
                     </div>
                     <div class="flex items-center justify-end gap-2.5">
                         <button type="button" onclick="App.closeModal('assignSubjectsModal')" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-[#64748B] hover:bg-[#F5F7FA] transition cursor-pointer">
@@ -221,6 +226,62 @@
                     </div>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MODAL 3B: REORDER SECTION SUBJECTS ==================== -->
+<div id="reorderSubjectsModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="reorderModalTitle">
+    <div class="min-h-screen px-4 text-center flex items-center justify-center">
+        <div class="fixed inset-0 bg-[#17243A]/60 backdrop-blur-xs transition-opacity" onclick="App.closeModal('reorderSubjectsModal')"></div>
+
+        <div class="inline-block w-full max-w-2xl my-8 text-left align-middle transition-all transform bg-white shadow-2xl rounded-2xl z-10 overflow-hidden border border-[#D8DEE8]">
+            <div class="px-6 py-4 bg-[#17243A] text-white flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-[#5276A7]/40 text-[#D5F0EA] border border-[#5276A7]/50">Sequence &amp; Formula</span>
+                        <h3 id="reorderModalTitle" class="font-display font-bold text-lg">Order Subjects for Section</h3>
+                    </div>
+                    <p class="text-xs sm:text-sm text-slate-300 mt-0.5">Customize which subject comes first (Col E), second (Col F), etc. for grade input and reports.</p>
+                </div>
+                <button type="button" onclick="App.closeModal('reorderSubjectsModal')" class="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-[#243752] transition cursor-pointer" aria-label="Close modal">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <input type="hidden" id="reorderSectionIdInput">
+
+                <div class="flex items-center justify-between gap-2 bg-[#F5F7FA] p-3 rounded-xl border border-[#D8DEE8] text-xs">
+                    <span class="text-[#64748B]">
+                        Use the <kbd class="px-1.5 py-0.5 bg-white border border-[#D8DEE8] rounded font-semibold text-[#17243A]">▲</kbd> / <kbd class="px-1.5 py-0.5 bg-white border border-[#D8DEE8] rounded font-semibold text-[#17243A]">▼</kbd> buttons or the position dropdown to set which subject is input first.
+                    </span>
+                    <button type="button" onclick="App.resetSubjectOrderToAlphabetical()" class="px-2.5 py-1 rounded-lg bg-white border border-[#D8DEE8] text-[#2C4870] hover:bg-[#EBF1F8] font-semibold whitespace-nowrap cursor-pointer transition">
+                        Reset A&ndash;Z
+                    </button>
+                </div>
+
+                <div id="reorderSubjectsListContainer" class="space-y-2 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+                    <!-- Populated by JS -->
+                </div>
+
+                <div class="pt-4 border-t border-[#D8DEE8] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="text-xs font-mono text-[#2C4870] truncate max-w-sm">
+                        <span class="text-[#64748B] font-sans">Formula Preview: </span>
+                        <code id="reorderFormulaPreview" class="font-bold"></code>
+                    </div>
+                    <div class="flex items-center justify-end gap-2.5">
+                        <button type="button" onclick="App.closeModal('reorderSubjectsModal')" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-[#64748B] hover:bg-[#F5F7FA] transition cursor-pointer">
+                            Cancel
+                        </button>
+                        <button type="button" id="reorderSaveBtn" onclick="App.saveSubjectOrder()" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer">
+                            Apply Subject Order
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -311,11 +372,23 @@
 
                 <!-- ==================== SINGLE STUDENT FIELDS ==================== -->
                 <div id="singleStudentFields" class="space-y-4">
-                    <div>
-                        <label for="studentNoInput" class="block text-sm font-semibold text-[#17243A] mb-1.5">
-                            Student ID Number <span class="text-[#64748B] font-normal">(Auto-generated if left blank)</span>
-                        </label>
-                        <input type="text" id="studentNoInput" placeholder="e.g., 2026-0001" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                            <label for="studentNoInput" class="block text-sm font-semibold text-[#17243A] mb-1.5">
+                                Student ID Number <span class="text-[#64748B] font-normal">(Auto if blank)</span>
+                            </label>
+                            <input type="text" id="studentNoInput" placeholder="e.g., 2026-0001" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                        </div>
+
+                        <div>
+                            <label for="studentGenderInput" class="block text-sm font-semibold text-[#17243A] mb-1.5">
+                                Gender / Roster Group <span class="text-[#9B3F72]">*</span>
+                            </label>
+                            <select id="studentGenderInput" required class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                <option value="Female">Female</option>
+                                <option value="Male">Male</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
@@ -345,10 +418,18 @@
                 <!-- ==================== BULK ADD STUDENTS (1 PER LINE) FIELDS ==================== -->
                 <div id="bulkStudentFields" class="hidden space-y-3">
                     <div class="flex flex-wrap items-center justify-between gap-2">
-                        <label for="bulkStudentsTextarea" class="block text-sm font-semibold text-[#17243A]">
-                            Paste or Type Student List <span class="text-[#9B3F72]">*</span>
-                            <span class="text-xs font-normal text-[#64748B] ml-1">(1 student per line)</span>
-                        </label>
+                        <div class="flex items-center gap-2.5 flex-wrap">
+                            <label for="bulkStudentsTextarea" class="block text-sm font-semibold text-[#17243A]">
+                                Paste or Type Student List <span class="text-[#9B3F72]">*</span>
+                            </label>
+                            <div class="inline-flex items-center gap-1.5 bg-[#F5F7FA] px-2.5 py-1 rounded-xl border border-[#D8DEE8]">
+                                <label for="bulkStudentGenderInput" class="text-xs font-semibold text-[#64748B]">Default Group:</label>
+                                <select id="bulkStudentGenderInput" onchange="App.onBulkStudentTextInput()" class="text-xs font-bold text-[#17243A] bg-transparent outline-none cursor-pointer">
+                                    <option value="Female">Female</option>
+                                    <option value="Male">Male</option>
+                                </select>
+                            </div>
+                        </div>
                         <div class="flex items-center gap-2">
                             <button type="button" onclick="App.fillSampleBulkStudents()" class="text-xs font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#D8E4F3] border border-[#C5D6EB] px-2.5 py-1 rounded-lg transition cursor-pointer">
                                 + Insert Sample Lines
@@ -359,12 +440,12 @@
                         </div>
                     </div>
 
-                    <textarea id="bulkStudentsTextarea" rows="7" oninput="App.onBulkStudentTextInput()" placeholder="Enter 1 student per line. Supported formats:&#10;Dela Cruz, Juan M.&#10;Villanueva, Angela R.&#10;Mark Anthony S. Mendoza&#10;2026-0101 | Bautista, Sophia L." class="w-full px-3.5 py-3 text-sm font-mono rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none leading-relaxed"></textarea>
+                    <textarea id="bulkStudentsTextarea" rows="7" oninput="App.onBulkStudentTextInput()" placeholder="Enter 1 student per line. You can also use 'Female:' and 'Male:' group headers or '| F' / '| M':&#10;Female:&#10;Villanueva, Angela R.&#10;Bautista, Sophia L.&#10;Male:&#10;Dela Cruz, Juan M.&#10;Mark Anthony S. Mendoza" class="w-full px-3.5 py-3 text-sm font-mono rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none leading-relaxed"></textarea>
 
                     <div class="rounded-xl bg-[#F5F7FA] border border-[#D8DEE8] p-3 space-y-2">
                         <div class="flex items-center justify-between text-xs">
-                            <span class="font-bold uppercase tracking-wider text-[#64748B]">Live Parsed Preview</span>
-                            <span class="text-[#64748B]">Accepts <code class="text-[#17243A]">Last, First M.I.</code> or <code class="text-[#17243A]">First M.I. Last</code> or <code class="text-[#17243A]">ID | Name</code></span>
+                            <span class="font-bold uppercase tracking-wider text-[#64748B]">Live Parsed Preview (Female &amp; Male)</span>
+                            <span class="text-[#64748B]">Supports <code class="text-[#17243A]">Female:</code> / <code class="text-[#17243A]">Male:</code> headers or <code class="text-[#17243A]">| F</code> / <code class="text-[#17243A]">| M</code></span>
                         </div>
                         <div id="bulkStudentsPreviewList" class="max-h-36 overflow-y-auto custom-scrollbar divide-y divide-[#D8DEE8]/70 text-xs text-[#64748B]">
                             <p class="text-[#64748B] italic py-1">Type or paste student names above to preview how they will be saved...</p>
