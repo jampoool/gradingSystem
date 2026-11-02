@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
-define('DB_PASS', 'root');
+define('DB_PASS', '');
 define('DB_NAME', 'gradingsystem');
 
 function getDBConnection(): PDO
@@ -143,9 +143,65 @@ function ensureSchema(PDO $pdo): void
         $pdo->exec("ALTER TABLE `students` ADD COLUMN `gender` ENUM('Female', 'Male') NOT NULL DEFAULT 'Female' AFTER `full_name`");
     }
 
+    // ==================== MULTI-USER ACCOUNTS (Admin & Teachers) ====================
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `users` (
+            `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `username` VARCHAR(60) NOT NULL,
+            `password_hash` VARCHAR(255) NOT NULL,
+            `full_name` VARCHAR(120) NOT NULL,
+            `role` ENUM('admin', 'teacher') NOT NULL DEFAULT 'teacher',
+            `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+            `last_login_at` DATETIME DEFAULT NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_username` (`username`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    // Each subject load in a section can be handled by one teacher account
+    $teacherColCheck = $pdo->query("SHOW COLUMNS FROM `section_subjects` LIKE 'teacher_id'");
+    if ($teacherColCheck && $teacherColCheck->rowCount() === 0) {
+        $pdo->exec("ALTER TABLE `section_subjects` ADD COLUMN `teacher_id` INT UNSIGNED DEFAULT NULL AFTER `instructor`");
+        $pdo->exec("ALTER TABLE `section_subjects` ADD CONSTRAINT `fk_ss_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `users` (`id`) ON DELETE SET NULL");
+    }
+
+    // Seed a default administrator account on first run (username: admin / password: admin123)
+    $userCount = (int)$pdo->query("SELECT COUNT(*) FROM `users`")->fetchColumn();
+    if ($userCount === 0) {
+        $seedAdmin = $pdo->prepare("INSERT INTO `users` (username, password_hash, full_name, role) VALUES (?, ?, ?, 'admin')");
+        $seedAdmin->execute(['admin', password_hash('admin123', PASSWORD_DEFAULT), 'System Administrator']);
+    }
+
     // Ensure `sort_order` column exists on existing `section_subjects` table
     $orderCheck = $pdo->query("SHOW COLUMNS FROM `section_subjects` LIKE 'sort_order'");
     if ($orderCheck && $orderCheck->rowCount() === 0) {
         $pdo->exec("ALTER TABLE `section_subjects` ADD COLUMN `sort_order` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `instructor`");
     }
+
+    // Ensure `can_add_student` permission column exists on `users` table
+    $permCheck = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'can_add_student'");
+    if ($permCheck && $permCheck->rowCount() === 0) {
+        $pdo->exec("ALTER TABLE `users` ADD COLUMN `can_add_student` TINYINT(1) NOT NULL DEFAULT 0 AFTER `role`");
+    }
+
+    // ==================== GRADE LOCKS & UNLOCK REQUESTS ====================
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `grade_locks` (
+            `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `section_id` INT UNSIGNED NOT NULL,
+            `subject_id` INT UNSIGNED NOT NULL,
+            `quarter` ENUM('Q1', 'Q2', 'Q3', 'Q4') NOT NULL DEFAULT 'Q1',
+            `is_locked` TINYINT(1) NOT NULL DEFAULT 1,
+            `locked_by_user_id` INT UNSIGNED DEFAULT NULL,
+            `locked_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            `unlock_requested` TINYINT(1) NOT NULL DEFAULT 0,
+            `unlock_reason` TEXT DEFAULT NULL,
+            `unlock_requested_by` INT UNSIGNED DEFAULT NULL,
+            `unlock_requested_at` DATETIME DEFAULT NULL,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_section_subject_quarter_lock` (`section_id`, `subject_id`, `quarter`),
+            CONSTRAINT `fk_gl_section` FOREIGN KEY (`section_id`) REFERENCES `sections` (`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_gl_subject` FOREIGN KEY (`subject_id`) REFERENCES `subjects` (`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
 }

@@ -1,6 +1,19 @@
 <?php
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/includes/auth.php';
+$currentUser = requireLoginPage();
+$isAdminUser = ($currentUser['role'] ?? '') === 'admin';
 $dbStatus = getDatabaseStatus();
+
+$requestedPage = $_GET['page'] ?? $_GET['view'] ?? 'dashboard';
+$allowedPages = ['dashboard', 'sections', 'subjects', 'students', 'grading', 'reports', 'users'];
+if (!in_array($requestedPage, $allowedPages, true)) {
+    $requestedPage = 'dashboard';
+}
+if ($requestedPage === 'users' && !$isAdminUser) {
+    $requestedPage = 'dashboard';
+}
+
 require_once __DIR__ . '/includes/header.php';
 ?>
     <!-- App Shell (Academic Prestige — 60% Cloud White #F5F7FA / 30% Midnight Navy #17243A / 10% Semantic Accents) -->
@@ -12,7 +25,7 @@ require_once __DIR__ . '/includes/header.php';
             <?php require_once __DIR__ . '/includes/navbar.php'; ?>
 
             <!-- Page Container (Full Width & Full Height Flex — No Blank Space) -->
-            <main class="flex-1 flex flex-col min-h-0 w-full max-w-none p-3.5 sm:p-5 overflow-y-auto custom-scrollbar gap-4">
+            <main id="mainContent" tabindex="-1" class="flex-1 flex flex-col min-h-0 w-full max-w-none p-3.5 sm:p-5 overflow-y-auto custom-scrollbar gap-4 outline-none">
 
                 <?php if (!$dbStatus['connected']): ?>
                 <!-- Database Connection Alert (Berry Plum Danger #F5DFEB / #842D60) -->
@@ -43,7 +56,7 @@ require_once __DIR__ . '/includes/header.php';
                             <button type="button" onclick="App.seedSampleData()" class="px-4 py-2.5 rounded-xl bg-white text-[#17243A] hover:bg-[#F5F7FA] font-bold text-sm shadow-sm transition cursor-pointer">
                                 Load Sample Data
                             </button>
-                            <button type="button" onclick="App.openSectionModal()" class="px-4 py-2.5 rounded-xl bg-[#17243A]/70 hover:bg-[#17243A] text-white font-semibold text-sm border border-white/25 transition cursor-pointer">
+                            <button type="button" onclick="App.openSectionModal()" class="admin-only px-4 py-2.5 rounded-xl bg-[#17243A]/70 hover:bg-[#17243A] text-white font-semibold text-sm border border-white/25 transition cursor-pointer">
                                 + Create First Section
                             </button>
                         </div>
@@ -51,41 +64,41 @@ require_once __DIR__ . '/includes/header.php';
                 </div>
 
                 <!-- ==================== VIEW 1: OVERVIEW DASHBOARD ==================== -->
-                <section id="view-dashboard" class="view-panel space-y-4">
+                <section id="view-dashboard" class="view-panel <?= $requestedPage === 'dashboard' ? '' : 'hidden' ?> space-y-4">
                     <!-- Top Row: Academic Prestige KPI & Passing / At-Risk Rate Cards -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3.5 shrink-0">
                         <!-- Passing Students Rate (Deep Teal #0F766E / Pale Mint #D5F0EA) -->
-                        <div onclick="App.switchView('reports')" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#0F766E] transition cursor-pointer group flex flex-col justify-between">
+                        <div role="button" tabindex="0" onclick="App.switchView('reports')" onkeydown="if(event.key==='Enter'||event.key===' '){App.switchView('reports');event.preventDefault();}" aria-label="Passing Students rate: click to view reports and honor roll" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#0F766E] transition cursor-pointer group flex flex-col justify-between">
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-xs font-bold uppercase tracking-wider text-[#64748B]">Passing Students</span>
+                                <span class="text-xs font-bold uppercase tracking-wider text-[#475569]">Passing Students</span>
                                 <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">
                                     <span>&#10003; Passing</span>
                                 </span>
                             </div>
                             <div class="mt-2 flex items-baseline justify-between">
                                 <p id="statPassingRate" class="font-display text-2xl sm:text-3xl font-extrabold text-[#0F766E]">0.0%</p>
-                                <span id="statPassingCount" class="text-xs font-semibold text-[#64748B]">0 passed (&ge;75)</span>
+                                <span id="statPassingCount" class="text-xs font-semibold text-[#475569]">0 passed (&ge;75)</span>
                             </div>
                         </div>
 
                         <!-- Students at Risk Rate (Berry Plum #9B3F72 / Soft Rose #F5DFEB / Dark Berry #842D60) -->
-                        <div onclick="App.switchView('grading')" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#9B3F72] transition cursor-pointer group flex flex-col justify-between">
+                        <div role="button" tabindex="0" onclick="App.switchView('grading')" onkeydown="if(event.key==='Enter'||event.key===' '){App.switchView('grading');event.preventDefault();}" aria-label="Students at Risk rate: click to view and input grades" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#9B3F72] transition cursor-pointer group flex flex-col justify-between">
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-xs font-bold uppercase tracking-wider text-[#64748B]">Students at Risk</span>
+                                <span class="text-xs font-bold uppercase tracking-wider text-[#475569]">Students at Risk</span>
                                 <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]">
                                     <span>&#9888; Failing</span>
                                 </span>
                             </div>
                             <div class="mt-2 flex items-baseline justify-between">
                                 <p id="statRiskRate" class="font-display text-2xl sm:text-3xl font-extrabold text-[#842D60]">0.0%</p>
-                                <span id="statRiskCount" class="text-xs font-semibold text-[#64748B]">0 failing (&lt;75)</span>
+                                <span id="statRiskCount" class="text-xs font-semibold text-[#475569]">0 failing (&lt;75)</span>
                             </div>
                         </div>
 
                         <!-- Total Students (Midnight Navy #17243A) -->
-                        <div onclick="App.switchView('students')" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#5276A7] transition cursor-pointer group flex items-center justify-between">
+                        <div role="button" tabindex="0" onclick="App.switchView('students')" onkeydown="if(event.key==='Enter'||event.key===' '){App.switchView('students');event.preventDefault();}" aria-label="Total Students: click to view student directory" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#5276A7] transition cursor-pointer group flex items-center justify-between">
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wider text-[#64748B]">Total Students</p>
+                                <p class="text-xs font-bold uppercase tracking-wider text-[#475569]">Total Students</p>
                                 <p id="statStudents" class="font-display text-2xl sm:text-3xl font-extrabold text-[#17243A] mt-1">0</p>
                                 <p class="text-xs text-[#5276A7] font-semibold mt-1 group-hover:underline">Student directory &rarr;</p>
                             </div>
@@ -97,9 +110,9 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
 
                         <!-- Active Sections -->
-                        <div onclick="App.switchView('sections')" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#5276A7] transition cursor-pointer group flex items-center justify-between">
+                        <div role="button" tabindex="0" onclick="App.switchView('sections')" onkeydown="if(event.key==='Enter'||event.key===' '){App.switchView('sections');event.preventDefault();}" aria-label="Active Sections: click to manage curriculum and sections" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#5276A7] transition cursor-pointer group flex items-center justify-between">
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wider text-[#64748B]">Active Sections</p>
+                                <p class="text-xs font-bold uppercase tracking-wider text-[#475569]">Active Sections</p>
                                 <p id="statSections" class="font-display text-2xl sm:text-3xl font-extrabold text-[#17243A] mt-1">0</p>
                                 <p class="text-xs text-[#5276A7] font-semibold mt-1 group-hover:underline">Manage sections &rarr;</p>
                             </div>
@@ -111,9 +124,9 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
 
                         <!-- Catalog Subjects -->
-                        <div onclick="App.switchView('subjects')" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#5276A7] transition cursor-pointer group flex items-center justify-between">
+                        <div role="button" tabindex="0" onclick="App.switchView('subjects')" onkeydown="if(event.key==='Enter'||event.key===' '){App.switchView('subjects');event.preventDefault();}" aria-label="Catalog Subjects: click to manage subjects and units" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#5276A7] transition cursor-pointer group flex items-center justify-between">
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wider text-[#64748B]">Catalog Subjects</p>
+                                <p class="text-xs font-bold uppercase tracking-wider text-[#475569]">Catalog Subjects</p>
                                 <p id="statSubjects" class="font-display text-2xl sm:text-3xl font-extrabold text-[#17243A] mt-1">0</p>
                                 <p class="text-xs text-[#5276A7] font-semibold mt-1 group-hover:underline">Weighted units &rarr;</p>
                             </div>
@@ -125,9 +138,9 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
 
                         <!-- Subject Loads & Honor Roll -->
-                        <div onclick="App.switchView('reports')" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#0F766E] transition cursor-pointer group flex items-center justify-between">
+                        <div role="button" tabindex="0" onclick="App.switchView('reports')" onkeydown="if(event.key==='Enter'||event.key===' '){App.switchView('reports');event.preventDefault();}" aria-label="Subject Loads: click to view rankings and reports" class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs hover:border-[#0F766E] transition cursor-pointer group flex items-center justify-between">
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wider text-[#64748B]">Subject Loads</p>
+                                <p class="text-xs font-bold uppercase tracking-wider text-[#475569]">Subject Loads</p>
                                 <p id="statAssignments" class="font-display text-2xl sm:text-3xl font-extrabold text-[#17243A] mt-1">0</p>
                                 <p class="text-xs text-[#0F766E] font-semibold mt-1 group-hover:underline">Honor ranking &rarr;</p>
                             </div>
@@ -147,10 +160,10 @@ require_once __DIR__ . '/includes/header.php';
                             <div class="px-4 py-3.5 border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 shrink-0">
                                 <div>
                                     <h3 class="font-display font-bold text-[#17243A] text-base">Section Explorer &amp; Enrolled Students</h3>
-                                    <p class="text-xs text-[#64748B] mt-0.5">Click a section pill below to switch sections, view enrolled students, and adjust entries shown</p>
+                                    <p class="text-xs text-[#475569] mt-0.5">Click a section pill below to switch sections, view enrolled students, and adjust entries shown</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2">
-                                    <button type="button" onclick="App.openSectionModal()" class="text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] px-3.5 py-1.5 rounded-xl transition cursor-pointer">
+                                    <button type="button" onclick="App.openSectionModal()" class="admin-only text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] px-3.5 py-1.5 rounded-xl transition cursor-pointer">
                                         + New Section
                                     </button>
                                     <button type="button" onclick="App.switchView('sections')" class="text-xs font-semibold text-[#5276A7] hover:text-[#17243A] px-2.5 py-1.5 rounded-xl hover:bg-[#F5F7FA] transition cursor-pointer">
@@ -178,9 +191,9 @@ require_once __DIR__ . '/includes/header.php';
                                         <h3 class="font-display font-bold text-[#17243A] text-base">Student Grade Overview</h3>
                                         <span id="dashboardOverviewSectionBadge" class="px-2 py-0.5 rounded-md text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">All</span>
                                     </div>
-                                    <p class="text-xs text-[#64748B] mt-0.5">Live weighted score &amp; policy status (&ge;75 Passing)</p>
+                                    <p class="text-xs text-[#475569] mt-0.5">Live weighted score &amp; policy status (&ge;75 Passing)</p>
                                 </div>
-                                <div class="flex items-center gap-1.5">
+                                <div class="flex items-center gap-1.5 can-add-student-only">
                                     <button type="button" onclick="App.openDashboardActiveSectionStudentModal('bulk')" class="text-xs font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#D8E4F3] border border-[#C5D6EB] px-2.5 py-1.5 rounded-xl transition cursor-pointer" title="Bulk add multiple students (1 per line) to active section">
                                         + Bulk Add
                                     </button>
@@ -197,14 +210,14 @@ require_once __DIR__ . '/includes/header.php';
                 </section>
 
                 <!-- ==================== VIEW 2: SECTIONS & SUBJECT ASSIGNMENTS ==================== -->
-                <section id="view-sections" class="view-panel hidden space-y-4">
+                <section id="view-sections" class="view-panel <?= $requestedPage === 'sections' ? '' : 'hidden' ?> space-y-4">
                     <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
                         <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
                             <div class="relative flex-1">
-                                <svg class="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <svg class="w-4 h-4 text-[#475569] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                                 </svg>
-                                <input type="text" id="sectionSearchInput" placeholder="Search sections, year level, adviser, or assigned subjects..." class="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                <input type="text" id="sectionSearchInput" aria-label="Search sections by name, year level, adviser, or subjects" placeholder="Search sections, year level, adviser, or assigned subjects..." class="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                             </div>
                             <select id="sectionYearFilter" aria-label="Filter sections by year level" class="px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                                 <option value="">All Year Levels</option>
@@ -220,7 +233,7 @@ require_once __DIR__ . '/includes/header.php';
                                 <option value="Grade 12">Grade 12</option>
                             </select>
                         </div>
-                        <button type="button" onclick="App.openSectionModal()" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer shrink-0">
+                        <button type="button" onclick="App.openSectionModal()" class="admin-only inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer shrink-0">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                             </svg>
@@ -234,13 +247,13 @@ require_once __DIR__ . '/includes/header.php';
                 </section>
 
                 <!-- ==================== VIEW 3: MANAGE SUBJECTS ==================== -->
-                <section id="view-subjects" class="view-panel hidden space-y-4">
+                <section id="view-subjects" class="view-panel <?= $requestedPage === 'subjects' ? '' : 'hidden' ?> space-y-4">
                     <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
                         <div class="relative flex-1">
-                            <svg class="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4 text-[#475569] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                             </svg>
-                            <input type="text" id="subjectSearchInput" placeholder="Search subjects by code, descriptive title, or description..." class="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                            <input type="text" id="subjectSearchInput" aria-label="Search catalog subjects by code, title, or description" placeholder="Search subjects by code, descriptive title, or description..." class="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                         </div>
                         <button type="button" onclick="App.openSubjectModal()" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer shrink-0">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
@@ -252,14 +265,14 @@ require_once __DIR__ . '/includes/header.php';
 
                     <div class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden">
                         <div class="flex-1 overflow-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse">
+                            <table class="w-full text-left border-collapse" aria-label="Data Table">
                                 <thead class="sticky top-0 z-10">
-                                    <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                                        <th class="py-3.5 px-4">Subject Code</th>
-                                        <th class="py-3.5 px-4">Subject Name &amp; Description</th>
-                                        <th class="py-3.5 px-4 text-center">Units (Weight)</th>
-                                        <th class="py-3.5 px-4">Assigned Sections</th>
-                                        <th class="py-3.5 px-4 text-right">Actions</th>
+                                    <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                        <th scope="col" class="py-3.5 px-4">Subject Code</th>
+                                        <th scope="col" class="py-3.5 px-4">Subject Name &amp; Description</th>
+                                        <th scope="col" class="py-3.5 px-4 text-center">Units (Weight)</th>
+                                        <th scope="col" class="py-3.5 px-4">Assigned Sections</th>
+                                        <th scope="col" class="py-3.5 px-4 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="subjectsTableBody" class="divide-y divide-[#D8DEE8]/70 text-sm">
@@ -271,11 +284,11 @@ require_once __DIR__ . '/includes/header.php';
                 </section>
 
                 <!-- ==================== VIEW 4: STUDENT DIRECTORY ==================== -->
-                <section id="view-students" class="view-panel hidden space-y-4">
+                <section id="view-students" class="view-panel <?= $requestedPage === 'students' ? '' : 'hidden' ?> space-y-4">
                     <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3 shrink-0">
                         <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
                             <div class="relative flex-1">
-                                <svg class="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <svg class="w-4 h-4 text-[#475569] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                                 </svg>
                                 <input type="text" id="studentSearchInput" placeholder="Search by student name, ID number, or section..." class="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
@@ -305,12 +318,12 @@ require_once __DIR__ . '/includes/header.php';
                                 <option value="Male">Male Only</option>
                             </select>
 
-                            <button type="button" id="resetStudentFiltersBtn" onclick="App.resetStudentFilters()" class="hidden px-3.5 py-2.5 text-xs font-semibold text-[#64748B] hover:text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8]/60 rounded-xl transition cursor-pointer">
+                            <button type="button" id="resetStudentFiltersBtn" onclick="App.resetStudentFilters()" class="hidden px-3.5 py-2.5 text-xs font-semibold text-[#475569] hover:text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8]/60 rounded-xl transition cursor-pointer">
                                 Reset
                             </button>
                         </div>
 
-                        <div class="flex flex-wrap items-center gap-2 shrink-0">
+                        <div class="flex flex-wrap items-center gap-2 shrink-0 can-add-student-only">
                             <button type="button" onclick="App.openStudentModal(null, null, 'bulk')" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#5276A7] hover:bg-[#3E5F8A] shadow-2xs transition cursor-pointer">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
@@ -328,17 +341,17 @@ require_once __DIR__ . '/includes/header.php';
 
                     <div class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden">
                         <div class="flex-1 overflow-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse">
+                            <table class="w-full text-left border-collapse" aria-label="Data Table">
                                 <thead class="sticky top-0 z-10">
-                                    <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                                        <th class="py-3.5 px-4">Student ID</th>
-                                        <th class="py-3.5 px-4">Full Name</th>
-                                        <th class="py-3.5 px-4">Gender</th>
-                                        <th class="py-3.5 px-4">Year Level</th>
-                                        <th class="py-3.5 px-4">Section</th>
-                                        <th class="py-3.5 px-4">Enrolled Subjects (From Section)</th>
-                                        <th class="py-3.5 px-4">Status</th>
-                                        <th class="py-3.5 px-4 text-right">Actions</th>
+                                    <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                        <th scope="col" class="py-3.5 px-4">Student ID</th>
+                                        <th scope="col" class="py-3.5 px-4">Full Name</th>
+                                        <th scope="col" class="py-3.5 px-4">Gender</th>
+                                        <th scope="col" class="py-3.5 px-4">Year Level</th>
+                                        <th scope="col" class="py-3.5 px-4">Section</th>
+                                        <th scope="col" class="py-3.5 px-4">Enrolled Subjects (From Section)</th>
+                                        <th scope="col" class="py-3.5 px-4">Status</th>
+                                        <th scope="col" class="py-3.5 px-4 text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="studentsTableBody" class="divide-y divide-[#D8DEE8]/70 text-sm">
@@ -350,31 +363,31 @@ require_once __DIR__ . '/includes/header.php';
                 </section>
 
                 <!-- ==================== VIEW 5: TEACHER GRADE INPUT PER SECTION ==================== -->
-                <section id="view-grading" class="view-panel hidden space-y-4">
+                <section id="view-grading" class="view-panel <?= $requestedPage === 'grading' ? '' : 'hidden' ?> space-y-4">
                     <!-- Top Grade Controls Bar -->
                     <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs space-y-3.5 shrink-0">
                         <div class="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-end">
                             <div class="lg:col-span-3">
-                                <label for="gradingSectionSelect" class="block text-xs font-bold uppercase tracking-wider text-[#64748B] mb-1.5">1. Select Section</label>
+                                <label for="gradingSectionSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">1. Select Section</label>
                                 <select id="gradingSectionSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                                     <!-- Populated by JS -->
                                 </select>
                             </div>
 
                             <div class="lg:col-span-4">
-                                <label for="gradingSubjectSelect" class="block text-xs font-bold uppercase tracking-wider text-[#64748B] mb-1.5">2. Select Subject (or Master Sheet)</label>
+                                <label for="gradingSubjectSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">2. Select Subject (or Master Sheet)</label>
                                 <select id="gradingSubjectSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                                     <!-- Populated by JS -->
                                 </select>
                             </div>
 
                             <div class="lg:col-span-2">
-                                <label class="block text-xs font-bold uppercase tracking-wider text-[#64748B] mb-1.5">3. Grading Period</label>
+                                <label class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">3. Grading Period</label>
                                 <div class="grid grid-cols-4 gap-1 bg-[#F5F7FA] p-1 rounded-xl border border-[#D8DEE8]">
                                     <button type="button" data-qtr-btn="Q1" onclick="App.setGradingQuarter('Q1')" class="qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[#17243A] text-white shadow-2xs transition cursor-pointer text-center">Q1</button>
-                                    <button type="button" data-qtr-btn="Q2" onclick="App.setGradingQuarter('Q2')" class="qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#64748B] hover:text-[#17243A] transition cursor-pointer text-center">Q2</button>
-                                    <button type="button" data-qtr-btn="Q3" onclick="App.setGradingQuarter('Q3')" class="qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#64748B] hover:text-[#17243A] transition cursor-pointer text-center">Q3</button>
-                                    <button type="button" data-qtr-btn="Q4" onclick="App.setGradingQuarter('Q4')" class="qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#64748B] hover:text-[#17243A] transition cursor-pointer text-center">Q4</button>
+                                    <button type="button" data-qtr-btn="Q2" onclick="App.setGradingQuarter('Q2')" class="qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#475569] hover:text-[#17243A] transition cursor-pointer text-center">Q2</button>
+                                    <button type="button" data-qtr-btn="Q3" onclick="App.setGradingQuarter('Q3')" class="qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#475569] hover:text-[#17243A] transition cursor-pointer text-center">Q3</button>
+                                    <button type="button" data-qtr-btn="Q4" onclick="App.setGradingQuarter('Q4')" class="qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#475569] hover:text-[#17243A] transition cursor-pointer text-center">Q4</button>
                                 </div>
                                 <select id="gradingQuarterSelect" class="hidden" aria-hidden="true">
                                     <option value="Q1">1st Quarter (Q1)</option>
@@ -399,6 +412,7 @@ require_once __DIR__ . '/includes/header.php';
                                     </svg>
                                     <span>Save All</span>
                                 </button>
+                                <div id="gradingLockActionsContainer" class="inline-flex items-center gap-2"></div>
                             </div>
                         </div>
 
@@ -416,9 +430,9 @@ require_once __DIR__ . '/includes/header.php';
                                 </div>
                             </div>
 
-                            <div class="flex flex-wrap items-center gap-2 shrink-0">
+                            <div class="flex flex-wrap items-center gap-2 shrink-0 can-add-student-only">
                                 <div class="relative">
-                                    <svg class="w-4 h-4 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <svg class="w-4 h-4 text-[#475569] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                                     </svg>
                                     <input type="text" id="gradingStudentSearchInput" placeholder="Filter student..." class="pl-9 pr-3 py-1.5 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] outline-none w-44 sm:w-52">
@@ -431,7 +445,7 @@ require_once __DIR__ . '/includes/header.php';
                                 </select>
 
                                 <div class="inline-flex items-center gap-1 bg-[#F5F7FA] px-2.5 py-1.5 rounded-xl border border-[#D8DEE8] text-xs">
-                                    <span class="text-[#64748B] font-semibold mr-1">Fill Empty:</span>
+                                    <span class="text-[#475569] font-semibold mr-1">Fill Empty:</span>
                                     <button type="button" onclick="App.quickFillEmptyGrades(85)" class="px-2 py-0.5 rounded-md bg-white hover:bg-[#EBF1F8] text-[#17243A] font-semibold border border-[#D8DEE8] transition cursor-pointer">85</button>
                                     <button type="button" onclick="App.quickFillEmptyGrades(88)" class="px-2 py-0.5 rounded-md bg-white hover:bg-[#EBF1F8] text-[#17243A] font-semibold border border-[#D8DEE8] transition cursor-pointer">88</button>
                                     <button type="button" onclick="App.quickFillEmptyGrades(90)" class="px-2 py-0.5 rounded-md bg-white hover:bg-[#D5F0EA] text-[#0F766E] font-bold border border-[#99D8CC] transition cursor-pointer">90</button>
@@ -446,6 +460,8 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
 
                         <!-- Active Formula & Keyboard Hint Banner (Midnight Navy #17243A) -->
+                        <div id="gradingLockNoticeBanner" class="hidden rounded-xl p-3 border text-xs flex flex-wrap items-center justify-between gap-2"></div>
+
                         <div id="gradingFormulaBanner" class="rounded-xl bg-[#17243A] text-slate-200 px-4 py-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2 text-xs">
                             <div class="flex items-center gap-2 flex-wrap">
                                 <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider bg-[#5276A7]/30 text-[#B8CCE6] border border-[#5276A7]/40">Live Formula</span>
@@ -466,18 +482,18 @@ require_once __DIR__ . '/includes/header.php';
                 </section>
 
                 <!-- ==================== VIEW 6: AUTOMATED QUARTERLY REPORT, RANKING & HONOR PULLOUT ==================== -->
-                <section id="view-reports" class="view-panel hidden space-y-4">
+                <section id="view-reports" class="view-panel <?= $requestedPage === 'reports' ? '' : 'hidden' ?> space-y-4">
                     <!-- Report Filter Bar -->
                     <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col lg:flex-row lg:items-end justify-between gap-3.5 no-print shrink-0">
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 flex-1">
                             <div>
-                                <label for="reportSectionSelect" class="block text-xs font-bold uppercase tracking-wider text-[#64748B] mb-1.5">Select Section</label>
+                                <label for="reportSectionSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">Select Section</label>
                                 <select id="reportSectionSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                                     <!-- Populated by JS -->
                                 </select>
                             </div>
                             <div>
-                                <label for="reportQuarterSelect" class="block text-xs font-bold uppercase tracking-wider text-[#64748B] mb-1.5">Quarter / Evaluation Period</label>
+                                <label for="reportQuarterSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">Quarter / Evaluation Period</label>
                                 <select id="reportQuarterSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                                     <option value="Q1">1st Quarter (Q1)</option>
                                     <option value="Q2">2nd Quarter (Q2)</option>
@@ -515,6 +531,66 @@ require_once __DIR__ . '/includes/header.php';
                     </div>
                 </section>
 
+                <!-- ==================== VIEW 7: TEACHER ACCOUNTS & PERMISSIONS (ADMIN ONLY) ==================== -->
+                <section id="view-users" class="view-panel <?= $requestedPage === 'users' ? '' : 'hidden' ?> space-y-4 admin-only">
+                    <!-- Top Actions Bar -->
+                    <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                        <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
+                            <div class="relative flex-1">
+                                <svg class="w-4 h-4 text-[#475569] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                </svg>
+                                <input type="text" id="userSearchInput" aria-label="Search teacher user accounts by name or username" oninput="App.renderUsersView()" placeholder="Search accounts by teacher name or username..." class="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                            </div>
+                            <select id="userRoleFilter" aria-label="Filter teacher accounts by role" onchange="App.renderUsersView()" class="px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                <option value="">All Roles</option>
+                                <option value="teacher">Teachers Only</option>
+                                <option value="admin">Administrators Only</option>
+                            </select>
+                        </div>
+                        <button type="button" onclick="App.openTeacherModal()" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer shrink-0">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            <span>Add Teacher User</span>
+                        </button>
+                    </div>
+
+                    <!-- Pending Unlock Requests Banner (Visible when teachers have requested unlocks) -->
+                    <div id="adminPendingUnlocksContainer" class="hidden space-y-3 shrink-0">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- User Directory Table Container -->
+                    <div class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden">
+                        <div class="px-5 py-3.5 bg-[#F5F7FA] border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 shrink-0">
+                            <div>
+                                <h3 class="font-display font-bold text-[#17243A] text-base">Teacher Accounts &amp; Permissions</h3>
+                                <p class="text-xs text-[#475569] mt-0.5">Control teacher access, assignable roles, and student enrollment privileges</p>
+                            </div>
+                            <span id="userCountSummary" class="text-xs font-semibold text-[#5276A7] bg-[#EBF1F8] px-3 py-1 rounded-full border border-[#C5D5EA]">0 Accounts</span>
+                        </div>
+                        <div class="flex-1 overflow-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse" aria-label="Data Table">
+                                <thead class="sticky top-0 z-10">
+                                    <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                        <th scope="col" class="py-3.5 px-4">User / Full Name</th>
+                                        <th scope="col" class="py-3.5 px-4">Username</th>
+                                        <th scope="col" class="py-3.5 px-4">Role</th>
+                                        <th scope="col" class="py-3.5 px-4">Handled Teaching Loads</th>
+                                        <th scope="col" class="py-3.5 px-4 text-center">Student Add Permission</th>
+                                        <th scope="col" class="py-3.5 px-4 text-center">Status</th>
+                                        <th scope="col" class="py-3.5 px-4 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="usersTableBody" class="divide-y divide-[#D8DEE8]/70 text-sm">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
             </main>
         </div>
     </div>
@@ -525,3 +601,4 @@ require_once __DIR__ . '/includes/header.php';
     <script src="assets/js/app.js"></script>
 </body>
 </html>
+

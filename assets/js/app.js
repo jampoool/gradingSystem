@@ -60,6 +60,11 @@ const App = (() => {
 
         reportSectionId: null,
         reportQuarter: 'Q1',
+
+        currentUser: null,
+        teachers: [],
+        gradeLocks: {},
+        pendingUnlockRequests: [],
     };
 
     const viewMeta = {
@@ -86,6 +91,10 @@ const App = (() => {
         reports: {
             title: 'Quarterly Report, Weighted Ranking & Honor Pullout',
             breadcrumb: 'Automated Quarterly Ranking',
+        },
+        users: {
+            title: 'Teacher Accounts & Permissions',
+            breadcrumb: 'Manage Users',
         },
     };
 
@@ -465,6 +474,8 @@ const App = (() => {
                     ? `<span class="w-6 h-6 rounded-lg bg-[#EBF1F8] text-[#2C4870] flex items-center justify-center shrink-0 font-bold text-xs">i</span>`
                     : `<span class="w-6 h-6 rounded-lg bg-[#D5F0EA] text-[#0F766E] flex items-center justify-center shrink-0 font-bold text-xs">&#10003;</span>`;
 
+        toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+        toast.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
         toast.className = `toast-enter pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border-l-4 ${colors[type] || colors.success} text-sm font-medium`;
         toast.innerHTML = `
             ${iconHtml}
@@ -488,6 +499,10 @@ const App = (() => {
         state.sections = data.sections || [];
         state.subjects = data.subjects || [];
         state.students = data.students || [];
+        state.currentUser = data.current_user || null;
+        state.teachers = data.teachers || [];
+        state.gradeLocks = data.grade_locks || data.gradeLocks || {};
+        state.pendingUnlockRequests = data.pending_unlock_requests || [];
         state.stats = data.stats || {
             total_students: 0,
             total_sections: 0,
@@ -496,21 +511,41 @@ const App = (() => {
             total_grades: 0,
         };
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlSecId = urlParams.get('section_id');
+        const urlQtr = urlParams.get('quarter');
+        const urlSubId = urlParams.get('subject_id');
+
         if (state.sections.length > 0) {
+            const hasUrlSec = urlSecId && state.sections.some(s => s.id === Number(urlSecId));
+            const initialSecId = hasUrlSec ? Number(urlSecId) : state.sections[0].id;
+
             if (!state.dashboardSectionId || !state.sections.some(s => s.id === Number(state.dashboardSectionId))) {
-                state.dashboardSectionId = state.sections[0].id;
+                state.dashboardSectionId = initialSecId;
                 state.dashboardCurrentPage = 1;
             }
             if (!state.gradingSectionId || !state.sections.some(s => s.id === Number(state.gradingSectionId))) {
-                state.gradingSectionId = state.sections[0].id;
+                state.gradingSectionId = initialSecId;
             }
             if (!state.reportSectionId || !state.sections.some(s => s.id === Number(state.reportSectionId))) {
-                state.reportSectionId = state.sections[0].id;
+                state.reportSectionId = initialSecId;
+            }
+            if (urlQtr && ['Q1', 'Q2', 'Q3', 'Q4', 'FINAL'].includes(urlQtr)) {
+                state.gradingQuarter = urlQtr;
+                state.reportQuarter = urlQtr;
+            }
+            if (urlSubId) {
+                state.gradingSubjectId = String(urlSubId);
             }
         } else {
             state.dashboardSectionId = null;
             state.gradingSectionId = null;
             state.reportSectionId = null;
+        }
+
+        if (state.currentView === 'students' && urlSecId) {
+            const secFilter = document.getElementById('studentSectionFilter');
+            if (secFilter) secFilter.value = String(urlSecId);
         }
 
         renderAll();
@@ -546,6 +581,10 @@ const App = (() => {
     }
 
     function openDashboardActiveSectionStudentModal(mode = 'single') {
+        if (state.currentUser?.role !== 'admin' && !state.currentUser?.can_add_student) {
+            showToast('Permission restricted: You do not have permission to enroll students. Contact your administrator.', 'error');
+            return;
+        }
         const targetSecId = state.dashboardSectionId || (state.sections[0]?.id ?? null);
         openStudentModal(null, targetSecId, mode);
     }
@@ -559,8 +598,41 @@ const App = (() => {
         }
     }
 
-    function switchView(viewName) {
+    function updateBrowserUrl(params = {}, replace = false) {
+        try {
+            const currentParams = new URLSearchParams(window.location.search);
+            for (const [key, val] of Object.entries(params)) {
+                if (val === null || val === undefined || val === '') {
+                    currentParams.delete(key);
+                } else {
+                    currentParams.set(key, String(val));
+                }
+            }
+            if (params.page && params.page !== 'grading' && params.page !== 'reports' && params.page !== 'students') {
+                currentParams.delete('section_id');
+                currentParams.delete('subject_id');
+                currentParams.delete('quarter');
+            }
+            const query = currentParams.toString() ? `?${currentParams.toString()}` : window.location.pathname;
+            const newUrl = currentParams.toString() ? `${window.location.pathname}?${currentParams.toString()}` : window.location.pathname;
+            const currentFull = `${window.location.pathname}${window.location.search}`;
+            if (newUrl !== currentFull) {
+                if (replace) {
+                    window.history.replaceState({ page: params.page || state.currentView }, '', newUrl);
+                } else {
+                    window.history.pushState({ page: params.page || state.currentView }, '', newUrl);
+                }
+            }
+        } catch (e) {
+            // History API fallback
+        }
+    }
+
+    function switchView(viewName, updateUrl = true) {
         if (!viewMeta[viewName]) return;
+        if (viewName === 'users' && state.currentUser && state.currentUser.role !== 'admin') {
+            viewName = 'dashboard';
+        }
         state.currentView = viewName;
 
         document.querySelectorAll('.view-panel').forEach(panel => {
@@ -570,26 +642,50 @@ const App = (() => {
         document.querySelectorAll('.nav-btn').forEach(btn => {
             const isActive = btn.getAttribute('data-nav') === viewName;
             if (isActive) {
-                btn.className = 'nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-[#243752] text-white border border-[#5276A7]/50 shadow-xs transition-all cursor-pointer';
+                btn.className = 'nav-btn w-full flex items-center justify-between px-3.5 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold bg-[#243752] text-white border border-[#5276A7]/50 shadow-xs transition-all cursor-pointer';
+                btn.setAttribute('aria-current', 'page');
             } else {
-                btn.className = 'nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-[#243752]/70 transition-all cursor-pointer';
+                btn.className = 'nav-btn w-full flex items-center justify-between px-3.5 py-2.5 min-h-[44px] rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-[#243752]/70 transition-all cursor-pointer';
+                btn.removeAttribute('aria-current');
             }
         });
 
-        document.getElementById('headerTitle').textContent = viewMeta[viewName].title;
-        document.getElementById('headerBreadcrumb').textContent = viewMeta[viewName].breadcrumb;
+        const headerTitle = document.getElementById('headerTitle');
+        const headerBreadcrumb = document.getElementById('headerBreadcrumb');
+        if (headerTitle) headerTitle.textContent = viewMeta[viewName].title;
+        if (headerBreadcrumb) headerBreadcrumb.textContent = viewMeta[viewName].breadcrumb;
+
+        if (updateUrl) {
+            updateBrowserUrl({ page: viewName });
+        }
 
         closeMobileSidebar();
     }
 
     function openMobileSidebar() {
-        document.getElementById('sidebar')?.classList.remove('-translate-x-full');
-        document.getElementById('sidebarBackdrop')?.classList.remove('hidden');
+        const sidebar = document.getElementById('sidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        const btn = document.getElementById('mobileMenuBtn');
+        if (!sidebar || !backdrop) return;
+        sidebar.classList.remove('-translate-x-full');
+        backdrop.classList.remove('hidden');
+        btn?.setAttribute('aria-expanded', 'true');
+        document.body.classList.add('overflow-hidden');
+        requestAnimationFrame(() => {
+            const firstNav = sidebar.querySelector('.nav-btn');
+            firstNav?.focus();
+        });
     }
 
     function closeMobileSidebar() {
-        document.getElementById('sidebar')?.classList.add('-translate-x-full');
-        document.getElementById('sidebarBackdrop')?.classList.add('hidden');
+        const sidebar = document.getElementById('sidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        const btn = document.getElementById('mobileMenuBtn');
+        if (!sidebar || !backdrop) return;
+        sidebar.classList.add('-translate-x-full');
+        backdrop.classList.add('hidden');
+        btn?.setAttribute('aria-expanded', 'false');
+        document.body.classList.remove('overflow-hidden');
     }
 
     function renderAll() {
@@ -617,6 +713,24 @@ const App = (() => {
         renderStudentsView();
         renderGradingView();
         renderReportsView();
+
+        const usersBadge = document.getElementById('navBadgeUsers');
+        if (usersBadge) {
+            usersBadge.textContent = state.teachers ? state.teachers.length : 0;
+        }
+        const unlockBadge = document.getElementById('navBadgeUnlockRequests');
+        if (unlockBadge) {
+            const count = state.pendingUnlockRequests ? state.pendingUnlockRequests.length : 0;
+            unlockBadge.textContent = count;
+            unlockBadge.classList.toggle('hidden', count === 0);
+        }
+
+        const canAddStudent = state.currentUser?.role === 'admin' || Boolean(state.currentUser?.can_add_student);
+        document.querySelectorAll('.can-add-student-only').forEach(el => {
+            el.classList.toggle('hidden', !canAddStudent);
+        });
+
+        renderUsersView();
     }
 
     function yearLevelBadgeClass(yearLevel) {
@@ -678,7 +792,7 @@ const App = (() => {
 
         if (state.sections.length === 0) {
             if (pillsBar) {
-                pillsBar.innerHTML = `<span class="text-xs font-medium text-[#64748B]">No sections available yet</span>`;
+                pillsBar.innerHTML = `<span class="text-xs font-medium text-[#475569]">No sections available yet</span>`;
             }
             if (overviewSecBadge) {
                 overviewSecBadge.textContent = '0 Enrolled';
@@ -686,13 +800,12 @@ const App = (() => {
             secContainer.innerHTML = `
                 <div class="h-full flex flex-col items-center justify-center text-center py-10 px-4 border-2 border-dashed border-[#D8DEE8] rounded-2xl bg-[#F5F7FA]/50">
                     <p class="text-base font-bold text-[#17243A]">No sections created yet</p>
-                    <p class="text-sm text-[#64748B] mt-1 max-w-md">Create a section or load the 28-unit demo data to test teacher grade input and weighted ranking.</p>
+                    <p class="text-sm text-[#475569] mt-1 max-w-md">Create a section or load the 28-unit demo data to test teacher grade input and weighted ranking.</p>
                     <div class="mt-4 flex flex-wrap items-center justify-center gap-2.5">
                         <button type="button" onclick="App.seedSampleData()" class="px-4 py-2 rounded-xl text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer">
                             Load 28-Unit Demo &amp; Grades
                         </button>
-                        <button type="button" onclick="App.openSectionModal()" class="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
-                            + Create Section
+                        <button type="button" onclick="App.openSectionModal()" class="admin-only px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">+ Create Section
                         </button>
                     </div>
                 </div>
@@ -707,19 +820,19 @@ const App = (() => {
                 const pillsHtml = state.sections.map((sec, idx) => {
                     const isSelected = sec.id === activeSec.id;
                     const chevron = idx > 0
-                        ? `<span class="text-[#64748B]/50 font-bold text-xs select-none">/</span>`
+                        ? `<span class="text-[#475569]/50 font-bold text-xs select-none">/</span>`
                         : '';
                     return `
                         ${chevron}
                         <button type="button"
-                            onclick="App.setDashboardSection(${sec.id})"
+                            onclick="App.setDashboardSection(${sec.id})" aria-pressed="${isSelected}" aria-label="Select section ${escapeHtml(sec.section_name)}"
                             class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold whitespace-nowrap border transition cursor-pointer ${
                                 isSelected
                                     ? 'bg-[#17243A] text-white border-[#17243A] shadow-xs'
                                     : 'bg-white text-[#17243A] border-[#D8DEE8] hover:border-[#5276A7] hover:bg-[#EBF1F8]/50'
                             }">
                             <span>${escapeHtml(sec.section_name)}</span>
-                            <span class="text-xs font-medium ${isSelected ? 'text-slate-300' : 'text-[#64748B]'}">(${escapeHtml(sec.year_level)})</span>
+                            <span class="text-xs font-medium ${isSelected ? 'text-slate-300' : 'text-[#475569]'}">(${escapeHtml(sec.year_level)})</span>
                             <span class="px-2 py-0.5 rounded-full text-xs font-bold ${
                                 isSelected
                                     ? 'bg-[#D5F0EA] text-[#0F766E]'
@@ -730,13 +843,12 @@ const App = (() => {
                 }).join('');
 
                 pillsBar.innerHTML = `
-                    <span class="text-xs font-bold uppercase tracking-wider text-[#64748B] shrink-0 mr-1">Sections:</span>
+                    <span class="text-xs font-bold uppercase tracking-wider text-[#475569] shrink-0 mr-1">Sections:</span>
                     <div class="flex items-center gap-1.5">
                         ${pillsHtml}
                     </div>
-                    <button type="button" onclick="App.openSectionModal()" class="ml-auto shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold text-[#5276A7] hover:text-[#17243A] bg-white hover:bg-[#EBF1F8] border border-dashed border-[#5276A7]/50 transition cursor-pointer" title="Create another section">
-                        + Add Section
-                    </button>
+                    <button type="button" onclick="App.openSectionModal()" class="admin-only ml-auto shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold text-[#5276A7] hover:text-[#17243A] bg-white hover:bg-[#EBF1F8] border border-dashed border-[#5276A7]/50 transition cursor-pointer" title="Create another section">
+                        + Add Section</button>
                 `;
             }
 
@@ -750,9 +862,9 @@ const App = (() => {
                     ${activeSec.assigned_subjects.map((sub, idx) => `
                         <button type="button" onclick="App.openSectionGrading(${activeSec.id}, ${sub.subject_id})" class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-medium bg-white hover:bg-[#EBF1F8]/60 text-[#17243A] border border-[#D8DEE8] hover:border-[#5276A7] shadow-2xs transition cursor-pointer text-left">
                             <span class="truncate">
-                                <span class="font-mono font-bold text-[#64748B]">${excelColLetter(idx)}:</span>
+                                <span class="font-mono font-bold text-[#475569]">${excelColLetter(idx)}:</span>
                                 <strong class="text-[#17243A] text-xs">${escapeHtml(sub.subject_code)}</strong>
-                                <span class="text-[#64748B] text-xs block truncate">${escapeHtml(sub.subject_name)}</span>
+                                <span class="text-[#475569] text-xs block truncate">${escapeHtml(sub.subject_name)}</span>
                             </span>
                             <span class="text-xs font-bold text-[#2C4870] bg-[#EBF1F8] px-2 py-0.5 rounded-md border border-[#C5D5EA] shrink-0">*${formatUnits(sub.units)}u</span>
                         </button>
@@ -810,7 +922,7 @@ const App = (() => {
                         class="px-2 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
                             isCurr
                                 ? 'bg-[#17243A] text-white border-[#17243A]'
-                                : 'bg-white text-[#64748B] border-[#D8DEE8] hover:text-[#17243A] hover:bg-[#F5F7FA]'
+                                : 'bg-white text-[#475569] border-[#D8DEE8] hover:text-[#17243A] hover:bg-[#F5F7FA]'
                         }">
                         ${label}
                     </button>
@@ -821,7 +933,7 @@ const App = (() => {
                 <div class="inline-flex items-center gap-1 bg-white p-1 rounded-xl border border-[#D8DEE8]">
                     <button type="button" onclick="App.setDashboardGenderFilter('')"
                         class="px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                            !genderFilter ? 'bg-[#17243A] text-white' : 'text-[#64748B] hover:text-[#17243A]'
+                            !genderFilter ? 'bg-[#17243A] text-white' : 'text-[#475569] hover:text-[#17243A]'
                         }">
                         All (${allSectionRows.length})
                     </button>
@@ -855,7 +967,7 @@ const App = (() => {
                 }
 
                 const minGradeColor = r.minGrade === null
-                    ? 'text-[#64748B]'
+                    ? 'text-[#475569]'
                     : r.minGrade < GRADING_POLICY.passingGrade
                         ? 'text-[#842D60] font-bold'
                         : r.minGrade < GRADING_POLICY.honorSubjectFloor
@@ -863,7 +975,7 @@ const App = (() => {
                             : 'text-[#17243A]';
 
                 const avgColor = r.weightedAverage === null
-                    ? 'text-[#64748B]'
+                    ? 'text-[#475569]'
                     : r.isFailingOverall
                         ? 'text-[#842D60]'
                         : meetsHonorAveragePolicy(r.weightedAverage)
@@ -872,9 +984,9 @@ const App = (() => {
 
                 return `
                     <tr class="hover:bg-[#F5F7FA]/90 transition">
-                        <td class="py-2.5 px-3 font-mono text-xs text-[#64748B]">${rowNumber}</td>
+                        <td class="py-2.5 px-3 font-mono text-xs text-[#475569]">${rowNumber}</td>
                         <td class="py-2.5 px-3 font-bold ${r.rank === 1 ? 'text-[#80530F]' : 'text-[#17243A]'}">${r.rank ? `#${r.rank}` : '—'}</td>
-                        <td class="py-2.5 px-3 font-mono text-xs font-semibold text-[#64748B]">${escapeHtml(r.student.student_no)}</td>
+                        <td class="py-2.5 px-3 font-mono text-xs font-semibold text-[#475569]">${escapeHtml(r.student.student_no)}</td>
                         <td class="py-2.5 px-3">
                             <div class="flex items-center gap-2">
                                 <span class="font-semibold text-[#17243A]">${escapeHtml(r.student.full_name)}</span>
@@ -889,12 +1001,12 @@ const App = (() => {
                                 <button type="button" onclick="App.openSectionGrading(${activeSec.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Encode grades">
                                     Grade
                                 </button>
-                                <button type="button" onclick="App.openStudentModal(${r.student.id})" class="p-1.5 rounded-lg text-[#64748B] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit or transfer student">
+                                <button type="button" onclick="App.openStudentModal(${r.student.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit or transfer student">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
                                     </svg>
                                 </button>
-                                <button type="button" onclick="App.confirmDeleteStudent(${r.student.id})" class="p-1.5 rounded-lg text-[#64748B] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove student from section">
+                                <button type="button" onclick="App.confirmDeleteStudent(${r.student.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove student from section">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                     </svg>
@@ -924,7 +1036,7 @@ const App = (() => {
                     <tr>
                         <td colspan="8" class="py-8 px-4 text-center">
                             <p class="text-sm font-bold text-[#17243A]">${searchQ || genderFilter ? 'No matching students in this section' : `No students enrolled in ${escapeHtml(activeSec.section_name)} yet`}</p>
-                            <p class="text-xs text-[#64748B] mt-1">Adjust enrollment for ${escapeHtml(activeSec.section_name)} by adding a single student or bulk-enrolling a list.</p>
+                            <p class="text-xs text-[#475569] mt-1">Adjust enrollment for ${escapeHtml(activeSec.section_name)} by adding a single student or bulk-enrolling a list.</p>
                             <div class="mt-3 inline-flex items-center gap-2">
                                 <button type="button" onclick="App.openStudentModal(null, ${activeSec.id}, 'single')" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
                                     + Add Student to ${escapeHtml(activeSec.section_name)}
@@ -967,10 +1079,10 @@ const App = (() => {
                                 <span class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">
                                     ${activeSec.student_count} Enrolled (&#9792; ${totalFemaleInSec} Female &bull; &#9794; ${totalMaleInSec} Male)
                                 </span>
-                                <span class="text-xs font-medium text-[#64748B]">&bull; ${formatUnits(activeSec.total_units)} units</span>
+                                <span class="text-xs font-medium text-[#475569]">&bull; ${formatUnits(activeSec.total_units)} units</span>
                                 ${qualCount > 0 ? `<span class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">&#10003; ${qualCount} Honor Qualifier${qualCount === 1 ? '' : 's'}</span>` : ''}
                             </div>
-                            <div class="flex items-center gap-2 text-xs text-[#64748B] mt-1 flex-wrap">
+                            <div class="flex items-center gap-2 text-xs text-[#475569] mt-1 flex-wrap">
                                 ${activeSec.adviser ? `<span>Adviser: <strong class="text-[#17243A]">${escapeHtml(activeSec.adviser)}</strong></span><span>&bull;</span>` : ''}
                                 <code class="text-xs font-mono text-[#2C4870] bg-[#EBF1F8] px-2 py-0.5 rounded-md border border-[#C5D5EA]">${escapeHtml(formulaStr)}</code>
                             </div>
@@ -1006,7 +1118,7 @@ const App = (() => {
                             </span>
                             ${genderFilterPillsHtml}
                             <div class="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-[#D8DEE8]">
-                                <label for="dashboardEntriesSelect" class="text-xs font-medium text-[#64748B]">Show:</label>
+                                <label for="dashboardEntriesSelect" class="text-xs font-medium text-[#475569]">Show:</label>
                                 <select id="dashboardEntriesSelect" onchange="App.setDashboardPageSize(this.value)" class="text-xs font-bold text-[#17243A] bg-transparent outline-none cursor-pointer">
                                     ${pageSizeOptions}
                                 </select>
@@ -1032,17 +1144,17 @@ const App = (() => {
 
                     <!-- Students Table -->
                     <div class="flex-1 overflow-x-auto custom-scrollbar">
-                        <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                        <table class="w-full text-left border-collapse text-xs sm:text-sm" aria-label="Enrolled Students in Section">
                             <thead>
-                                <tr class="border-b border-[#D8DEE8] bg-[#F5F7FA]/60 text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                                    <th class="py-2.5 px-3 w-10">#</th>
-                                    <th class="py-2.5 px-3">Rank</th>
-                                    <th class="py-2.5 px-3">Student ID</th>
-                                    <th class="py-2.5 px-3">Student Name</th>
-                                    <th class="py-2.5 px-3 text-center">Min Grade</th>
-                                    <th class="py-2.5 px-3 text-center">Weighted Avg</th>
-                                    <th class="py-2.5 px-3">Status &amp; Honor Qualification</th>
-                                    <th class="py-2.5 px-3 text-right">Manage</th>
+                                <tr class="border-b border-[#D8DEE8] bg-[#F5F7FA]/60 text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                    <th scope="col" class="py-2.5 px-3 w-10">#</th>
+                                    <th scope="col" class="py-2.5 px-3">Rank</th>
+                                    <th scope="col" class="py-2.5 px-3">Student ID</th>
+                                    <th scope="col" class="py-2.5 px-3">Student Name</th>
+                                    <th scope="col" class="py-2.5 px-3 text-center">Min Grade</th>
+                                    <th scope="col" class="py-2.5 px-3 text-center">Weighted Avg</th>
+                                    <th scope="col" class="py-2.5 px-3">Status &amp; Honor Qualification</th>
+                                    <th scope="col" class="py-2.5 px-3 text-right">Manage</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-[#D8DEE8]/60">
@@ -1052,7 +1164,7 @@ const App = (() => {
                     </div>
 
                     <!-- Pagination & Entry Count Footer -->
-                    <div class="px-3.5 py-2.5 bg-[#F5F7FA] border-t border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 text-xs text-[#64748B] shrink-0">
+                    <div class="px-3.5 py-2.5 bg-[#F5F7FA] border-t border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 text-xs text-[#475569] shrink-0">
                         <div>
                             Showing <strong class="text-[#17243A]">${startEntryNum}</strong> to <strong class="text-[#17243A]">${endEntryNum}</strong> of <strong class="text-[#17243A]">${totalMatching}</strong> student${totalMatching === 1 ? '' : 's'} enrolled in <strong class="text-[#17243A]">${escapeHtml(activeSec.section_name)}</strong>
                         </div>
@@ -1094,7 +1206,7 @@ const App = (() => {
             stuContainer.innerHTML = `
                 <div class="h-full flex flex-col items-center justify-center text-center py-10 px-4">
                     <p class="text-base font-bold text-[#17243A]">No students in ${activeSectionForOverview ? escapeHtml(activeSectionForOverview.section_name) : 'this section'}</p>
-                    <p class="text-sm text-[#64748B] mt-1">Enroll students individually or via bulk add (1 per line).</p>
+                    <p class="text-sm text-[#475569] mt-1">Enroll students individually or via bulk add (1 per line).</p>
                     <div class="mt-3.5 flex items-center gap-2">
                         <button type="button" onclick="App.openDashboardActiveSectionStudentModal('single')" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
                             + Add Student
@@ -1111,7 +1223,7 @@ const App = (() => {
                 const stRow = standings?.rows.find(r => r.student.id === st.id);
                 const avg = stRow ? stRow.weightedAverage : null;
 
-                let scoreHtml = `<span class="font-display font-bold text-base text-[#64748B]">—</span>`;
+                let scoreHtml = `<span class="font-display font-bold text-base text-[#475569]">—</span>`;
                 let statusPillHtml = `
                     <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]">
                         <span>&#9203;</span>
@@ -1144,12 +1256,12 @@ const App = (() => {
                     <div class="py-2.5 px-3 flex items-center justify-between gap-3 hover:bg-[#F5F7FA] rounded-xl transition cursor-pointer" onclick="App.openSectionGrading(${st.section_id})" title="Click to open section grade sheet">
                         <div class="min-w-0">
                             <div class="flex items-center gap-1.5">
-                                <span class="font-mono text-xs text-[#64748B]">${idx + 1}.</span>
+                                <span class="font-mono text-xs text-[#475569]">${idx + 1}.</span>
                                 <p class="text-sm font-bold text-[#17243A] truncate">${escapeHtml(st.full_name)}</p>
                                 ${genderBadgeHtml(st.gender, true)}
                             </div>
-                            <div class="flex items-center gap-1.5 text-xs text-[#64748B] mt-0.5">
-                                <span class="font-mono text-xs text-[#64748B]">${escapeHtml(st.student_no)}</span>
+                            <div class="flex items-center gap-1.5 text-xs text-[#475569] mt-0.5">
+                                <span class="font-mono text-xs text-[#475569]">${escapeHtml(st.student_no)}</span>
                                 <span>&bull;</span>
                                 <span class="font-semibold text-[#5276A7]">${escapeHtml(st.section_name)}</span>
                                 <span>(${escapeHtml(st.year_level)})</span>
@@ -1214,9 +1326,8 @@ const App = (() => {
             container.innerHTML = `
                 <div class="xl:col-span-2 bg-white rounded-2xl border border-[#D8DEE8] p-12 text-center">
                     <h4 class="font-display font-bold text-[#17243A] text-base">No sections found</h4>
-                    <p class="text-sm text-[#64748B] mt-1 max-w-md mx-auto">Create a section with its year level so you can assign subjects, enroll students, and compute quarterly rankings.</p>
-                    <button type="button" onclick="App.openSectionModal()" class="mt-4 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
-                        + Create Section
+                    <p class="text-sm text-[#475569] mt-1 max-w-md mx-auto">Create a section with its year level so you can assign subjects, enroll students, and compute quarterly rankings.</p>
+                    <button type="button" onclick="App.openSectionModal()" class="admin-only mt-4 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">+ Create Section
                     </button>
                 </div>
             `;
@@ -1233,13 +1344,13 @@ const App = (() => {
                         <div class="px-3.5 py-2.5 flex items-center justify-between gap-2.5 rounded-xl border border-[#D8DEE8] bg-[#F5F7FA]/80 hover:bg-white transition">
                             <div class="min-w-0">
                                 <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="text-xs font-mono font-bold text-[#64748B]">Col ${excelColLetter(idx)}</span>
+                                    <span class="text-xs font-mono font-bold text-[#475569]">Col ${excelColLetter(idx)}</span>
                                     <span class="font-mono text-xs font-bold text-[#2C4870] bg-[#EBF1F8] px-2 py-0.5 rounded-md border border-[#C5D5EA]">${escapeHtml(sub.subject_code)}</span>
                                     <span class="text-sm font-semibold text-[#17243A] truncate">${escapeHtml(sub.subject_name)}</span>
                                     <span class="text-xs font-bold text-[#0F766E] bg-[#D5F0EA] px-2 py-0.5 rounded-md border border-[#99D8CC]">*${formatUnits(sub.units)}u</span>
                                 </div>
                                 ${(sub.schedule || sub.instructor) ? `
-                                    <div class="text-xs text-[#64748B] mt-1 flex items-center gap-1.5">
+                                    <div class="text-xs text-[#475569] mt-1 flex items-center gap-1.5">
                                         ${sub.schedule ? `<span>${escapeHtml(sub.schedule)}</span>` : ''}
                                         ${sub.schedule && sub.instructor ? `<span>&bull;</span>` : ''}
                                         ${sub.instructor ? `<span>Teacher: ${escapeHtml(sub.instructor)}</span>` : ''}
@@ -1250,7 +1361,7 @@ const App = (() => {
                                 <button type="button" onclick="App.openSectionGrading(${sec.id}, ${sub.subject_id})" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input grades for this subject">
                                     Input Grades
                                 </button>
-                                <button type="button" onclick="App.unassignSingleSubject(${sec.id}, ${sub.subject_id})" class="p-1.5 rounded-lg text-[#64748B] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove subject from this section">
+                                <button type="button" onclick="App.unassignSingleSubject(${sec.id}, ${sub.subject_id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove subject from this section">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                                     </svg>
@@ -1260,7 +1371,7 @@ const App = (() => {
                     `).join('')}
                    </div>`
                 : `<div class="rounded-xl border border-dashed border-[#D8DEE8] p-5 text-center bg-[#F5F7FA]/60">
-                        <p class="text-sm text-[#64748B]">No subjects assigned to <strong class="text-[#17243A]">${escapeHtml(sec.section_name)}</strong> yet.</p>
+                        <p class="text-sm text-[#475569]">No subjects assigned to <strong class="text-[#17243A]">${escapeHtml(sec.section_name)}</strong> yet.</p>
                         <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[#5276A7] hover:text-[#17243A] cursor-pointer">
                             + Assign Subjects Now
                         </button>
@@ -1277,7 +1388,7 @@ const App = (() => {
                                         ${escapeHtml(sec.year_level)}
                                     </span>
                                 </div>
-                                <p class="text-xs sm:text-sm text-[#64748B] mt-1">
+                                <p class="text-xs sm:text-sm text-[#475569] mt-1">
                                     ${sec.adviser ? `Adviser: <strong class="text-[#17243A]">${escapeHtml(sec.adviser)}</strong> &bull; ` : ''}
                                     <span>${sec.student_count} Student${sec.student_count === 1 ? '' : 's'} (<span class="text-[#842D60] font-semibold">&#9792; ${sec.female_count || 0} Female</span>, <span class="text-[#2C4870] font-semibold">&#9794; ${sec.male_count || 0} Male</span>)</span>
                                     &bull;
@@ -1286,12 +1397,12 @@ const App = (() => {
                             </div>
 
                             <div class="flex items-center gap-1.5">
-                                <button type="button" onclick="App.openSectionModal(${sec.id})" class="p-2 rounded-xl text-[#64748B] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit section details">
+                                <button type="button" onclick="App.openSectionModal(${sec.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit section details">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
                                     </svg>
                                 </button>
-                                <button type="button" onclick="App.confirmDeleteSection(${sec.id})" class="p-2 rounded-xl text-[#64748B] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete section">
+                                <button type="button" onclick="App.confirmDeleteSection(${sec.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete section">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                     </svg>
@@ -1307,7 +1418,7 @@ const App = (() => {
 
                         <div class="mt-3.5">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-xs font-bold uppercase tracking-wider text-[#64748B]">Assigned Subjects (${sec.subject_count})</span>
+                                <span class="text-xs font-bold uppercase tracking-wider text-[#475569]">Assigned Subjects (${sec.subject_count})</span>
                                 <div class="flex items-center gap-2">
                                     ${sec.assigned_subjects.length > 1 ? `
                                         <button type="button" onclick="App.openReorderSubjectsModal(${sec.id})" class="text-xs font-semibold text-[#2C4870] hover:text-[#17243A] hover:underline cursor-pointer flex items-center gap-1">
@@ -1365,7 +1476,7 @@ const App = (() => {
                 <tr>
                     <td colspan="5" class="py-12 px-4 text-center">
                         <p class="text-base font-bold text-[#17243A]">No subjects found</p>
-                        <p class="text-sm text-[#64748B] mt-1">Add subjects with their unit weight (e.g., 4, 3, 1) to compute section rankings.</p>
+                        <p class="text-sm text-[#475569] mt-1">Add subjects with their unit weight (e.g., 4, 3, 1) to compute section rankings.</p>
                         <button type="button" onclick="App.openSubjectModal()" class="mt-3.5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
                             + Add New Subject
                         </button>
@@ -1383,7 +1494,7 @@ const App = (() => {
                         <span class="text-[#5276A7]">(${escapeHtml(sec.year_level)})</span>
                     </span>
                 `).join('')
-                : `<span class="text-xs text-[#64748B] italic">Not assigned to any section</span>`;
+                : `<span class="text-xs text-[#475569] italic">Not assigned to any section</span>`;
 
             return `
                 <tr class="hover:bg-[#F5F7FA]/80 transition">
@@ -1394,7 +1505,7 @@ const App = (() => {
                     </td>
                     <td class="py-3 px-4 align-middle">
                         <p class="font-semibold text-[#17243A] text-sm">${escapeHtml(sub.subject_name)}</p>
-                        ${sub.description ? `<p class="text-xs text-[#64748B] mt-0.5">${escapeHtml(sub.description)}</p>` : ''}
+                        ${sub.description ? `<p class="text-xs text-[#475569] mt-0.5">${escapeHtml(sub.description)}</p>` : ''}
                     </td>
                     <td class="py-3 px-4 align-middle text-center whitespace-nowrap">
                         <span class="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">
@@ -1408,12 +1519,12 @@ const App = (() => {
                     </td>
                     <td class="py-3 px-4 align-middle text-right whitespace-nowrap">
                         <div class="inline-flex items-center gap-1.5">
-                            <button type="button" onclick="App.openSubjectModal(${sub.id})" class="p-2 rounded-xl text-[#64748B] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Subject">
+                            <button type="button" onclick="App.openSubjectModal(${sub.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Subject">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
                                 </svg>
                             </button>
-                            <button type="button" onclick="App.confirmDeleteSubject(${sub.id})" class="p-2 rounded-xl text-[#64748B] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete Subject">
+                            <button type="button" onclick="App.confirmDeleteSubject(${sub.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete Subject">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                 </svg>
@@ -1472,7 +1583,7 @@ const App = (() => {
                 <tr>
                     <td colspan="8" class="py-12 px-4 text-center">
                         <p class="text-base font-bold text-[#17243A]">No student records match your view</p>
-                        <p class="text-sm text-[#64748B] mt-1">Enroll a student and assign them to a section, year level, and gender group.</p>
+                        <p class="text-sm text-[#475569] mt-1">Enroll a student and assign them to a section, year level, and gender group.</p>
                         <button type="button" onclick="App.openStudentModal()" class="mt-3.5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
                             + Add Student
                         </button>
@@ -1506,7 +1617,7 @@ const App = (() => {
             return `
                 <tr class="hover:bg-[#F5F7FA]/80 transition">
                     <td class="py-3 px-4 align-middle whitespace-nowrap">
-                        <span class="font-mono text-xs text-[#64748B] mr-1.5">${idxInGender}.</span>
+                        <span class="font-mono text-xs text-[#475569] mr-1.5">${idxInGender}.</span>
                         <span class="font-mono text-xs sm:text-sm font-semibold text-[#17243A] bg-[#F5F7FA] border border-[#D8DEE8] px-2.5 py-1 rounded-lg">${escapeHtml(st.student_no)}</span>
                     </td>
                     <td class="py-3 px-4 align-middle">
@@ -1541,12 +1652,12 @@ const App = (() => {
                             <button type="button" onclick="App.openSectionGrading(${st.section_id})" class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input Grades">
                                 Grades
                             </button>
-                            <button type="button" onclick="App.openStudentModal(${st.id})" class="p-2 rounded-xl text-[#64748B] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Student">
+                            <button type="button" onclick="App.openStudentModal(${st.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Student">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
                                 </svg>
                             </button>
-                            <button type="button" onclick="App.confirmDeleteStudent(${st.id})" class="p-2 rounded-xl text-[#64748B] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete Student">
+                            <button type="button" onclick="App.confirmDeleteStudent(${st.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete Student">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                 </svg>
@@ -1602,7 +1713,13 @@ const App = (() => {
         state.gradingSectionId = Number(sectionId);
         state.gradingSubjectId = subjectId ? String(subjectId) : 'ALL';
         if (quarter) state.gradingQuarter = quarter;
-        switchView('grading');
+        switchView('grading', false);
+        updateBrowserUrl({
+            page: 'grading',
+            section_id: state.gradingSectionId,
+            quarter: state.gradingQuarter,
+            subject_id: state.gradingSubjectId !== 'ALL' ? state.gradingSubjectId : null
+        });
         renderGradingView();
     }
 
@@ -1610,6 +1727,14 @@ const App = (() => {
         state.gradingQuarter = quarter;
         const qSelect = document.getElementById('gradingQuarterSelect');
         if (qSelect) qSelect.value = quarter;
+        if (state.currentView === 'grading') {
+            updateBrowserUrl({
+                page: 'grading',
+                section_id: state.gradingSectionId,
+                quarter: state.gradingQuarter,
+                subject_id: state.gradingSubjectId !== 'ALL' ? state.gradingSubjectId : null
+            }, true);
+        }
         renderGradingView();
     }
 
@@ -1617,6 +1742,14 @@ const App = (() => {
         state.gradingSubjectId = String(subjectId);
         const sSelect = document.getElementById('gradingSubjectSelect');
         if (sSelect) sSelect.value = String(subjectId);
+        if (state.currentView === 'grading') {
+            updateBrowserUrl({
+                page: 'grading',
+                section_id: state.gradingSectionId,
+                quarter: state.gradingQuarter,
+                subject_id: state.gradingSubjectId !== 'ALL' ? state.gradingSubjectId : null
+            }, true);
+        }
         renderGradingView();
     }
 
@@ -1656,7 +1789,7 @@ const App = (() => {
             const isAct = btn.getAttribute('data-qtr-btn') === state.gradingQuarter;
             btn.className = isAct
                 ? 'qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[#17243A] text-white shadow-2xs transition cursor-pointer text-center'
-                : 'qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#64748B] hover:text-[#17243A] transition cursor-pointer text-center';
+                : 'qtr-tab-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#475569] hover:text-[#17243A] transition cursor-pointer text-center';
         });
 
         if (state.sections.length === 0) {
@@ -1666,7 +1799,7 @@ const App = (() => {
             container.innerHTML = `
                 <div class="flex-1 flex flex-col items-center justify-center p-12 text-center">
                     <p class="text-base font-display font-bold text-[#17243A]">No Sections Available</p>
-                    <p class="text-sm text-[#64748B] mt-1">Create a section, assign subjects, and enroll students first—or load the 28-unit demo data.</p>
+                    <p class="text-sm text-[#475569] mt-1">Create a section, assign subjects, and enroll students first—or load the 28-unit demo data.</p>
                     <div class="mt-4 flex justify-center gap-2.5">
                         <button type="button" onclick="App.seedSampleData()" class="px-4 py-2 rounded-xl text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] cursor-pointer">
                             Load 28-Unit Demo Data
@@ -1733,7 +1866,7 @@ const App = (() => {
                                 ? 'bg-[#5276A7] text-white border-[#5276A7] shadow-2xs'
                                 : 'bg-[#F5F7FA] text-[#17243A] border-[#D8DEE8] hover:bg-[#EBF1F8]'
                         }">
-                        <span class="font-mono text-xs ${isSelected ? 'text-white/80' : 'text-[#64748B]'}">${col}:</span>
+                        <span class="font-mono text-xs ${isSelected ? 'text-white/80' : 'text-[#475569]'}">${col}:</span>
                         <span>${escapeHtml(sub.subject_code)}</span>
                         <span class="text-xs ${isSelected ? 'text-[#D5F0EA]' : 'text-[#0F766E]'}">*${formatUnits(sub.units)}u</span>
                         <span class="px-2 py-0.5 rounded-full text-xs ${
@@ -1756,7 +1889,7 @@ const App = (() => {
                             : 'bg-white text-[#17243A] border-[#D8DEE8] hover:bg-[#F5F7FA]'
                     }">
                     <span>All Subjects Sheet</span>
-                    <span class="px-2 py-0.5 rounded-full text-xs ${isAllSelected ? 'bg-[#D5F0EA] text-[#0F766E]' : 'bg-[#F5F7FA] text-[#64748B]'}">
+                    <span class="px-2 py-0.5 rounded-full text-xs ${isAllSelected ? 'bg-[#D5F0EA] text-[#0F766E]' : 'bg-[#F5F7FA] text-[#475569]'}">
                         ${filledCells}/${totalCells}
                     </span>
                 </button>`,
@@ -1773,7 +1906,7 @@ const App = (() => {
             container.innerHTML = `
                 <div class="flex-1 flex flex-col items-center justify-center p-12 text-center">
                     <p class="text-base font-display font-bold text-[#17243A]">No Subjects Assigned to ${escapeHtml(activeSection.section_name)}</p>
-                    <p class="text-sm text-[#64748B] mt-1">Assign subjects to this section first so teachers can input student grades.</p>
+                    <p class="text-sm text-[#475569] mt-1">Assign subjects to this section first so teachers can input student grades.</p>
                     <button type="button" onclick="App.openAssignSubjectsModal(${activeSection.id})" class="mt-4 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] cursor-pointer">
                         + Assign Subjects to ${escapeHtml(activeSection.section_name)}
                     </button>
@@ -1786,7 +1919,7 @@ const App = (() => {
             container.innerHTML = `
                 <div class="flex-1 flex flex-col items-center justify-center p-12 text-center">
                     <p class="text-base font-display font-bold text-[#17243A]">No Students Enrolled in ${escapeHtml(activeSection.section_name)}</p>
-                    <p class="text-sm text-[#64748B] mt-1">Enroll students into ${escapeHtml(activeSection.section_name)} to start inputting their grades.</p>
+                    <p class="text-sm text-[#475569] mt-1">Enroll students into ${escapeHtml(activeSection.section_name)} to start inputting their grades.</p>
                     <button type="button" onclick="App.openStudentModal(null, ${activeSection.id})" class="mt-4 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] cursor-pointer">
                         + Enroll Student in ${escapeHtml(activeSection.section_name)}
                     </button>
@@ -1811,14 +1944,148 @@ const App = (() => {
             rows: filteredRows,
         };
 
-        if (state.gradingSubjectId !== 'ALL') {
-            renderSingleSubjectGradeSheet(container, activeSection, filteredStandings, Number(state.gradingSubjectId));
+        // Determine Lock Status for Section / Subject / Quarter
+        const currentQtr = state.gradingQuarter;
+        const currentSubId = state.gradingSubjectId;
+        const assignedSubs = activeSection.assigned_subjects || [];
+        const isAdmin = state.currentUser?.role === 'admin';
+
+        let isSheetLocked = false;
+        let isUnlockRequested = false;
+        let activeLockData = null;
+        const subjectLocksMap = {};
+
+        assignedSubs.forEach(sub => {
+            const k = `${activeSection.id}_${sub.subject_id}_${currentQtr}`;
+            const lk = state.gradeLocks ? state.gradeLocks[k] : null;
+            if (lk && lk.is_locked) {
+                subjectLocksMap[sub.subject_id] = true;
+            }
+        });
+
+        if (currentSubId !== 'ALL') {
+            const lockKey = `${activeSection.id}_${currentSubId}_${currentQtr}`;
+            activeLockData = state.gradeLocks ? state.gradeLocks[lockKey] : null;
+            if (activeLockData && activeLockData.is_locked) {
+                isSheetLocked = true;
+                isUnlockRequested = Boolean(activeLockData.unlock_requested);
+            }
         } else {
-            renderMasterSectionGradeSheet(container, activeSection, filteredStandings);
+            // Master Spreadsheet: locked if all subjects are locked
+            const lockedCount = Object.keys(subjectLocksMap).length;
+            isSheetLocked = assignedSubs.length > 0 && lockedCount === assignedSubs.length;
+            isUnlockRequested = assignedSubs.some(sub => {
+                const k = `${activeSection.id}_${sub.subject_id}_${currentQtr}`;
+                return state.gradeLocks && state.gradeLocks[k] && state.gradeLocks[k].unlock_requested;
+            });
+            if (lockedCount > 0) {
+                const firstLockedSub = assignedSubs.find(s => subjectLocksMap[s.subject_id]);
+                if (firstLockedSub) {
+                    activeLockData = state.gradeLocks[`${activeSection.id}_${firstLockedSub.subject_id}_${currentQtr}`];
+                }
+            }
+        }
+
+        // Render Grading Lock Notice Banner
+        const lockNoticeBanner = document.getElementById('gradingLockNoticeBanner');
+        if (lockNoticeBanner) {
+            if (isSheetLocked) {
+                lockNoticeBanner.classList.remove('hidden');
+                if (isUnlockRequested) {
+                    lockNoticeBanner.className = 'rounded-xl p-3 border border-[#F0D296] bg-[#FFF0D1] text-xs flex flex-wrap items-center justify-between gap-2 text-[#80530F]';
+                    lockNoticeBanner.innerHTML = `
+                        <div class="flex items-center gap-2">
+                            <span class="text-base">⏳</span>
+                            <div>
+                                <span class="font-bold">Grades Finalized &amp; Unlock Request Submitted</span>
+                                <p class="text-[11px] opacity-90 mt-0.5">Reason: "${escapeHtml(activeLockData?.unlock_reason || '')}". Waiting for administrator approval.</p>
+                            </div>
+                        </div>
+                        <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-white text-[#80530F] border border-[#F0D296]">Pending Admin Review</span>
+                    `;
+                } else {
+                    lockNoticeBanner.className = 'rounded-xl p-3 border border-[#99D8CC] bg-[#D5F0EA] text-xs flex flex-wrap items-center justify-between gap-2 text-[#0F766E]';
+                    lockNoticeBanner.innerHTML = `
+                        <div class="flex items-center gap-2">
+                            <span class="text-base">🔒</span>
+                            <div>
+                                <span class="font-bold">Grades Finalized &amp; Locked for ${escapeHtml(currentQtr)}</span>
+                                <p class="text-[11px] opacity-90 mt-0.5">Locked ${activeLockData?.locked_at ? 'on ' + escapeHtml(activeLockData.locked_at) : ''} by ${escapeHtml(activeLockData?.locked_by_name || 'Teacher')}. Grade inputs are secured.</p>
+                            </div>
+                        </div>
+                        <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-white text-[#0F766E] border border-[#99D8CC]">Finalized &bull; Read-Only</span>
+                    `;
+                }
+            } else {
+                lockNoticeBanner.classList.add('hidden');
+                lockNoticeBanner.innerHTML = '';
+            }
+        }
+
+        // Render Lock Action Buttons in Header
+        const lockActionsContainer = document.getElementById('gradingLockActionsContainer');
+        if (lockActionsContainer) {
+            if (isAdmin) {
+                if (isSheetLocked) {
+                    lockActionsContainer.innerHTML = `
+                        <button type="button" onclick="App.toggleGradeLockDirect(${activeSection.id}, '${currentSubId}', '${currentQtr}', false)"
+                            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-[#0F766E] hover:bg-[#0c5f58] shadow-2xs transition cursor-pointer"
+                            title="Administrator Override: Unlock this grade sheet so teachers can edit">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
+                            <span>Admin Unlock Sheet</span>
+                        </button>
+                    `;
+                } else {
+                    lockActionsContainer.innerHTML = `
+                        <button type="button" onclick="App.toggleGradeLockDirect(${activeSection.id}, '${currentSubId}', '${currentQtr}', true)"
+                            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[#17243A] bg-[#F5F7FA] hover:bg-[#EBF1F8] border border-[#D8DEE8] transition cursor-pointer"
+                            title="Administrator: Finalize and lock this sheet immediately">
+                            <svg class="w-4 h-4 text-[#5276A7]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <span>Direct Lock</span>
+                        </button>
+                    `;
+                }
+            } else {
+                // Teacher view
+                if (!isSheetLocked) {
+                    lockActionsContainer.innerHTML = `
+                        <button type="button" onclick="App.lockCurrentGradesSheet()"
+                            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-[#17243A] hover:bg-[#243752] shadow-2xs transition cursor-pointer"
+                            title="Finalize grades and lock this sheet against accidental changes">
+                            <svg class="w-4 h-4 text-[#D5F0EA]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <span>Finalize &amp; Lock Grades</span>
+                        </button>
+                    `;
+                } else if (!isUnlockRequested) {
+                    lockActionsContainer.innerHTML = `
+                        <button type="button" onclick="App.openRequestUnlockModal()"
+                            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[#80530F] bg-[#FFF0D1] hover:bg-[#ffe6b3] border border-[#F0D296] shadow-2xs transition cursor-pointer"
+                            title="Submit a request to the administrator explaining why grades need to be rewritten">
+                            <svg class="w-4 h-4 text-[#B7791F]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
+                            <span>Request Unlock to Rewrite</span>
+                        </button>
+                    `;
+                } else {
+                    lockActionsContainer.innerHTML = `
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-[#80530F] bg-[#FFF0D1] border border-[#F0D296]">
+                            <span class="animate-pulse">⏳</span>
+                            <span>Unlock Request Pending</span>
+                        </span>
+                    `;
+                }
+            }
+        }
+
+        const inputsDisabled = isSheetLocked && !isAdmin;
+
+        if (state.gradingSubjectId !== 'ALL') {
+            renderSingleSubjectGradeSheet(container, activeSection, filteredStandings, Number(state.gradingSubjectId), inputsDisabled);
+        } else {
+            renderMasterSectionGradeSheet(container, activeSection, filteredStandings, subjectLocksMap, !isAdmin);
         }
     }
 
-    function renderSingleSubjectGradeSheet(container, section, standings, subjectId) {
+    function renderSingleSubjectGradeSheet(container, section, standings, subjectId, isLocked = false) {
         const subIndex = section.assigned_subjects.findIndex(s => Number(s.subject_id) === subjectId);
         const sub = section.assigned_subjects[subIndex];
         if (!sub) return;
@@ -1861,7 +2128,7 @@ const App = (() => {
 
             rowsHtmlChunks.push(`
                 <tr class="hover:bg-[#F5F7FA] transition text-sm" id="singleRow_${st.id}" data-student-row="${st.id}">
-                    <td class="py-2.5 px-3.5 font-mono text-xs text-[#64748B]">${colLetter}${row.excel_row}</td>
+                    <td class="py-2.5 px-3.5 font-mono text-xs text-[#475569]">${colLetter}${row.excel_row}</td>
                     <td class="py-2.5 px-3.5 font-mono text-xs font-semibold text-[#17243A]">${escapeHtml(st.student_no)}</td>
                     <td class="py-2.5 px-3.5">
                         <div class="flex items-center gap-2">
@@ -1887,10 +2154,8 @@ const App = (() => {
                                 onblur="App.onGradeCellBlur(this)"
                                 onkeydown="App.onGradeCellKeyDown(event, this)"
                                 oninput="App.onLiveGradeCellInput(this)"
-                                class="w-24 px-2.5 py-1.5 text-center font-bold text-sm rounded-xl border ${evalInfo.inputClass} focus:border-[#17243A] focus:ring-2 focus:ring-[#5276A7]/25 outline-none">
-                            <div class="hidden sm:inline-flex items-center gap-1">
-                                ${presetChips}
-                            </div>
+                                ${isLocked ? 'disabled readonly' : ''} class="w-24 px-2.5 py-1.5 text-center font-bold text-sm rounded-xl border ${evalInfo.inputClass} ${isLocked ? 'bg-slate-100 opacity-80 cursor-not-allowed text-[#475569]' : 'focus:border-[#17243A] focus:ring-2 focus:ring-[#5276A7]/25 outline-none'}">
+                            ${isLocked ? '' : `<div class="hidden sm:inline-flex items-center gap-1">${presetChips}</div>`}
                         </div>
                     </td>
                     <td class="py-2.5 px-3.5 text-center font-mono text-xs sm:text-sm font-semibold text-[#17243A]" data-weighted-cell="${st.id}">
@@ -1911,23 +2176,23 @@ const App = (() => {
                     <span class="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-[#17243A] text-white">Col ${colLetter}</span>
                     <h3 class="font-display font-bold text-[#17243A] text-sm sm:text-base">${escapeHtml(sub.subject_code)} — ${escapeHtml(sub.subject_name)}</h3>
                     <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">*${formatUnits(sub.units)} Units</span>
-                    <span class="text-xs sm:text-sm text-[#64748B]">
+                    <span class="text-xs sm:text-sm text-[#475569]">
                         &bull; ${escapeHtml(section.section_name)} (${escapeHtml(state.gradingQuarter)})
                         ${sub.instructor ? `&bull; Teacher: <strong class="text-[#17243A]">${escapeHtml(sub.instructor)}</strong>` : ''}
                     </span>
                 </div>
-                <span class="text-xs text-[#64748B] font-medium">Policy: Pass &ge; ${GRADING_POLICY.passingGrade} &bull; Honor Floor &ge; ${GRADING_POLICY.honorSubjectFloor}</span>
+                <span class="text-xs text-[#475569] font-medium">Policy: Pass &ge; ${GRADING_POLICY.passingGrade} &bull; Honor Floor &ge; ${GRADING_POLICY.honorSubjectFloor}</span>
             </div>
             <div class="flex-1 overflow-auto custom-scrollbar">
-                <table class="w-full text-left border-collapse">
+                <table class="w-full text-left border-collapse" aria-label="Student Grade Table">
                     <thead class="sticky top-0 z-10">
-                        <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                            <th class="py-3 px-3.5">Cell</th>
-                            <th class="py-3 px-3.5">Student ID</th>
-                            <th class="py-3 px-3.5">Student Name</th>
-                            <th class="py-3 px-3.5 text-center">${escapeHtml(state.gradingQuarter)} Grade (${colLetter}) &amp; Quick Presets</th>
-                            <th class="py-3 px-3.5 text-center">Weighted (${colLetter}*${formatUnits(sub.units)})</th>
-                            <th class="py-3 px-3.5 text-center">Academic Status</th>
+                        <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                            <th scope="col" class="py-3 px-3.5">Cell</th>
+                            <th scope="col" class="py-3 px-3.5">Student ID</th>
+                            <th scope="col" class="py-3 px-3.5">Student Name</th>
+                            <th scope="col" class="py-3 px-3.5 text-center">${escapeHtml(state.gradingQuarter)} Grade (${colLetter}) &amp; Quick Presets</th>
+                            <th scope="col" class="py-3 px-3.5 text-center">Weighted (${colLetter}*${formatUnits(sub.units)})</th>
+                            <th scope="col" class="py-3 px-3.5 text-center">Academic Status</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[#D8DEE8]/60 text-sm">
@@ -1956,7 +2221,7 @@ const App = (() => {
         return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]"><span>&#10005;</span><span>Failed (&lt; ${GRADING_POLICY.passingGrade})</span></span>`;
     }
 
-    function renderMasterSectionGradeSheet(container, section, standings) {
+    function renderMasterSectionGradeSheet(container, section, standings, subjectLocksMap = {}, enforceLocks = false) {
         const subjects = section.assigned_subjects || [];
         const rankByStudentId = {};
         standings.rankedRows.forEach(r => {
@@ -1966,7 +2231,7 @@ const App = (() => {
         const subjectHeadersHtml = subjects.map((sub, idx) => {
             const col = excelColLetter(idx);
             return `
-                <th class="py-2.5 px-2 text-center min-w-[96px] sm:min-w-[108px] border-l border-[#D8DEE8]">
+                <th scope="col" class="py-2.5 px-2 text-center min-w-[96px] sm:min-w-[108px] border-l border-[#D8DEE8]">
                     <button type="button" onclick="App.setGradingSubjectTab('${sub.subject_id}')" class="w-full text-center group cursor-pointer" title="Click to focus only on ${escapeHtml(sub.subject_code)} (${escapeHtml(sub.subject_name)})">
                         <div class="text-xs font-mono font-bold text-[#5276A7] group-hover:underline">${col}21*${formatUnits(sub.units)}</div>
                         <div class="text-xs font-bold text-[#17243A] truncate">${escapeHtml(sub.subject_code)}</div>
@@ -2001,6 +2266,7 @@ const App = (() => {
             const inputsHtml = row.subjectResults.map((sr, cIdx) => {
                 const val = sr.grade !== null ? sr.grade : '';
                 const evalInfo = evaluateGradePolicy(sr.grade);
+                const isSubLocked = enforceLocks && Boolean(subjectLocksMap[sr.subject_id]);
                 return `
                     <td class="py-2 px-1.5 text-center border-l border-[#D8DEE8]/50">
                         <input type="number" step="0.01" min="50" max="100"
@@ -2015,11 +2281,12 @@ const App = (() => {
                             data-units="${sr.units}"
                             value="${val !== '' ? Number(val) : ''}"
                             placeholder="—"
+                            ${isSubLocked ? 'disabled readonly' : ''}
                             onfocus="App.onGradeCellFocus(this)"
                             onblur="App.onGradeCellBlur(this)"
                             onkeydown="App.onGradeCellKeyDown(event, this)"
                             oninput="App.onMasterSheetCellInput(${st.id}, ${section.id})"
-                            class="w-full min-w-[76px] max-w-[96px] px-2.5 py-1.5 text-center font-bold text-sm rounded-xl border ${evalInfo.inputClass} focus:border-[#17243A] focus:ring-2 focus:ring-[#5276A7]/25 outline-none">
+                            class="w-full min-w-[76px] max-w-[96px] px-2.5 py-1.5 text-center font-bold text-sm rounded-xl border ${evalInfo.inputClass} ${isSubLocked ? 'bg-slate-100 opacity-80 cursor-not-allowed text-[#475569]' : 'focus:border-[#17243A] focus:ring-2 focus:ring-[#5276A7]/25 outline-none'}">
                     </td>
                 `;
             }).join('');
@@ -2040,7 +2307,7 @@ const App = (() => {
             }
 
             const avgColor = row.weightedAverage === null
-                ? 'text-[#64748B]'
+                ? 'text-[#475569]'
                 : row.isFailingOverall
                     ? 'text-[#842D60]'
                     : meetsHonorAveragePolicy(row.weightedAverage)
@@ -2049,16 +2316,16 @@ const App = (() => {
 
             bodyRowsChunks.push(`
                 <tr class="hover:bg-[#F5F7FA] transition text-sm" id="masterRow_${st.id}" data-excel-row="${row.excel_row}">
-                    <td class="py-2.5 px-3 font-mono text-xs text-[#64748B] whitespace-nowrap">#${row.excel_row}</td>
+                    <td class="py-2.5 px-3 font-mono text-xs text-[#475569] whitespace-nowrap">#${row.excel_row}</td>
                     <td class="py-2.5 px-4 whitespace-nowrap sticky left-0 bg-white/95 backdrop-blur-xs z-10 border-r border-[#D8DEE8]">
                         <div class="flex items-center gap-2">
                             <span class="font-semibold text-[#17243A] text-sm">${escapeHtml(st.full_name)}</span>
                             ${genderBadgeHtml(st.gender, true)}
                         </div>
-                        <div class="font-mono text-xs text-[#64748B]">${escapeHtml(st.student_no)}</div>
+                        <div class="font-mono text-xs text-[#475569]">${escapeHtml(st.student_no)}</div>
                     </td>
                     ${inputsHtml}
-                    <td class="py-2.5 px-3 text-center font-mono text-xs text-[#64748B] border-l border-[#D8DEE8] whitespace-nowrap" id="masterSum_${st.id}">
+                    <td class="py-2.5 px-3 text-center font-mono text-xs text-[#475569] border-l border-[#D8DEE8] whitespace-nowrap" id="masterSum_${st.id}">
                         ${row.gradedCount > 0 ? `${row.weightedSum.toFixed(1)} / ${formatUnits(row.isComplete ? row.totalSectionUnits : row.gradedUnits)}` : '—'}
                     </td>
                     <td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] whitespace-nowrap" id="masterAvg_${st.id}">
@@ -2084,23 +2351,23 @@ const App = (() => {
                     <h3 class="font-display font-bold text-[#17243A] text-sm sm:text-base">
                         Master Grade Sheet — ${escapeHtml(section.section_name)} (${escapeHtml(section.year_level)}) &bull; ${escapeHtml(state.gradingQuarter)}
                     </h3>
-                    <span class="text-xs text-[#64748B] hidden sm:inline">
+                    <span class="text-xs text-[#475569] hidden sm:inline">
                         &bull; Click any subject column header to switch to single-subject focus mode
                     </span>
                 </div>
-                <span class="text-xs sm:text-sm text-[#64748B]">Divisor: <strong class="text-[#17243A]">${formatUnits(section.total_units)} Total Units</strong></span>
+                <span class="text-xs sm:text-sm text-[#475569]">Divisor: <strong class="text-[#17243A]">${formatUnits(section.total_units)} Total Units</strong></span>
             </div>
             <div class="flex-1 overflow-auto custom-scrollbar">
-                <table class="w-full text-left border-collapse">
+                <table class="w-full text-left border-collapse" aria-label="Student Grade Table">
                     <thead class="sticky top-0 z-20">
-                        <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                            <th class="py-2.5 px-2.5">Row</th>
-                            <th class="py-2.5 px-3.5 min-w-[180px] sticky left-0 bg-[#F5F7FA] z-20 border-r border-[#D8DEE8]">Student</th>
+                        <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                            <th scope="col" class="py-2.5 px-2.5">Row</th>
+                            <th scope="col" class="py-2.5 px-3.5 min-w-[180px] sticky left-0 bg-[#F5F7FA] z-20 border-r border-[#D8DEE8]">Student</th>
                             ${subjectHeadersHtml}
-                            <th class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Sum / Units</th>
-                            <th class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Weighted Avg</th>
-                            <th class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Rank</th>
-                            <th class="py-2.5 px-3.5 border-l border-[#D8DEE8]">Status &amp; Honor Pullout Check</th>
+                            <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Sum / Units</th>
+                            <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Weighted Avg</th>
+                            <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Rank</th>
+                            <th scope="col" class="py-2.5 px-3.5 border-l border-[#D8DEE8]">Status &amp; Honor Pullout Check</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[#D8DEE8]/60 text-sm">
@@ -2369,7 +2636,7 @@ const App = (() => {
         const avgCell = document.getElementById(`masterAvg_${studentId}`);
         if (avgCell) {
             const avgColor = avg === null
-                ? 'text-[#64748B]'
+                ? 'text-[#475569]'
                 : isFailingOverall
                     ? 'text-[#842D60]'
                     : meetsHonorAveragePolicy(avg)
@@ -2398,7 +2665,12 @@ const App = (() => {
     }
 
     async function saveCurrentGradesSheet() {
-        const inputs = Array.from(document.querySelectorAll('#gradingSheetContainer input[data-grade-input="true"]'));
+        const isAdmin = state.currentUser?.role === 'admin';
+        const inputs = Array.from(document.querySelectorAll('#gradingSheetContainer input[data-grade-input="true"]:not([disabled])'));
+        if (inputs.length === 0) {
+            showToast('All inputs are locked or read-only. Submit an unlock request if you need to rewrite grades.', 'info');
+            return;
+        }
         if (inputs.length === 0) {
             showToast('No grade inputs to save.', 'info');
             return;
@@ -2445,7 +2717,12 @@ const App = (() => {
     function openSectionReport(sectionId, quarter = 'Q1') {
         state.reportSectionId = Number(sectionId);
         state.reportQuarter = quarter || 'Q1';
-        switchView('reports');
+        switchView('reports', false);
+        updateBrowserUrl({
+            page: 'reports',
+            section_id: state.reportSectionId,
+            quarter: state.reportQuarter
+        });
         renderReportsView();
     }
 
@@ -2456,8 +2733,7 @@ const App = (() => {
                 state.gradingQuarter = state.reportQuarter;
             }
         }
-        switchView('grading');
-        renderGradingView();
+        openSectionGrading(state.gradingSectionId, 'ALL', state.gradingQuarter);
     }
 
     function getHonorDistinction(avg) {
@@ -2536,7 +2812,7 @@ const App = (() => {
             container.innerHTML = `
                 <div class="bg-white rounded-2xl border border-[#D8DEE8] p-12 text-center">
                     <h3 class="font-display font-bold text-[#17243A] text-base">No Sections Available for Quarterly Report</h3>
-                    <p class="text-sm text-[#64748B] mt-1">Load the 28-unit sample curriculum and grades to see automated section rankings and the Honor Qualifier pullout.</p>
+                    <p class="text-sm text-[#475569] mt-1">Load the 28-unit sample curriculum and grades to see automated section rankings and the Honor Qualifier pullout.</p>
                     <button type="button" onclick="App.seedSampleData()" class="mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] cursor-pointer">
                         Load 28-Unit Demo &amp; Sample Grades
                     </button>
@@ -2578,13 +2854,13 @@ const App = (() => {
                     <table class="w-full text-left border-collapse text-sm print-table">
                         <thead>
                             <tr class="bg-[#D5F0EA]/60 border-b border-[#99D8CC] text-xs font-bold uppercase tracking-wider text-[#0F766E]">
-                                <th class="py-2.5 px-3 text-center">Rank</th>
-                                <th class="py-2.5 px-3">Student ID</th>
-                                <th class="py-2.5 px-3.5">Student Name</th>
-                                <th class="py-2.5 px-3 text-center">Honor Distinction</th>
-                                <th class="py-2.5 px-3">Subject Grades (All &ge; 85)</th>
-                                <th class="py-2.5 px-3 text-center">Lowest Grade</th>
-                                <th class="py-2.5 px-3 text-center">General Average</th>
+                                <th scope="col" class="py-2.5 px-3 text-center">Rank</th>
+                                <th scope="col" class="py-2.5 px-3">Student ID</th>
+                                <th scope="col" class="py-2.5 px-3.5">Student Name</th>
+                                <th scope="col" class="py-2.5 px-3 text-center">Honor Distinction</th>
+                                <th scope="col" class="py-2.5 px-3">Subject Grades (All &ge; 85)</th>
+                                <th scope="col" class="py-2.5 px-3 text-center">Lowest Grade</th>
+                                <th scope="col" class="py-2.5 px-3 text-center">General Average</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[#D8DEE8]/70 text-sm bg-white">
@@ -2597,7 +2873,7 @@ const App = (() => {
                                             Rank #${q.rank}
                                         </span>
                                     </td>
-                                    <td class="py-2.5 px-3 font-mono text-xs font-semibold text-[#64748B] whitespace-nowrap">
+                                    <td class="py-2.5 px-3 font-mono text-xs font-semibold text-[#475569] whitespace-nowrap">
                                         ${escapeHtml(q.student.student_no)}
                                     </td>
                                     <td class="py-2.5 px-3.5 font-display font-bold text-[#17243A] whitespace-nowrap">
@@ -2645,7 +2921,7 @@ const App = (() => {
             : `
                 <div class="p-6 text-center bg-white">
                     <p class="text-sm font-semibold text-[#17243A]">No students currently meet both qualification criteria for ${escapeHtml(quarterTitle)}</p>
-                    <p class="text-xs text-[#64748B] mt-1">To be pulled out here, a student must have complete grades in all assigned subjects, <strong>no subject grade below 85</strong>, and a <strong>weighted average of 89.50 or above (which rounds to 90)</strong>.</p>
+                    <p class="text-xs text-[#475569] mt-1">To be pulled out here, a student must have complete grades in all assigned subjects, <strong>no subject grade below 85</strong>, and a <strong>weighted average of 89.50 or above (which rounds to 90)</strong>.</p>
                 </div>
             `;
 
@@ -2653,10 +2929,10 @@ const App = (() => {
             const idx = standings.subjects.indexOf(sub);
             const col = excelColLetter(idx);
             return `
-                <th class="py-2.5 px-2 text-center border-l border-[#D8DEE8]">
+                <th scope="col" class="py-2.5 px-2 text-center border-l border-[#D8DEE8]">
                     <div class="text-xs font-mono font-bold text-[#5276A7]">${col}*${formatUnits(sub.units)}</div>
                     <div class="text-xs font-bold text-[#17243A]">${escapeHtml(sub.subject_code)}</div>
-                    <div class="text-xs text-[#64748B]">${formatUnits(sub.units)}u</div>
+                    <div class="text-xs text-[#475569]">${formatUnits(sub.units)}u</div>
                 </th>
             `;
         }).join('');
@@ -2664,7 +2940,7 @@ const App = (() => {
         const renderReportRankingRow = r => {
                 const subCells = r.subjectResults.map(sr => {
                     if (sr.grade === null) {
-                        return `<td class="py-2 px-2 text-center text-xs text-[#64748B] border-l border-[#D8DEE8]/50">—</td>`;
+                        return `<td class="py-2 px-2 text-center text-xs text-[#475569] border-l border-[#D8DEE8]/50">—</td>`;
                     }
                     const isFailing = sr.grade < GRADING_POLICY.passingGrade;
                     const isBelow85 = sr.grade >= GRADING_POLICY.passingGrade && sr.grade < GRADING_POLICY.honorSubjectFloor;
@@ -2683,7 +2959,7 @@ const App = (() => {
                             <div class="font-semibold text-sm ${textColor}">
                                 ${sr.grade.toFixed(0)}
                             </div>
-                            <div class="text-xs font-mono text-[#64748B]">
+                            <div class="text-xs font-mono text-[#475569]">
                                 (${sr.weighted_product.toFixed(0)})
                             </div>
                         </td>
@@ -2725,7 +3001,7 @@ const App = (() => {
                 }
 
                 const minGradeColor = r.minGrade === null
-                    ? 'text-[#64748B]'
+                    ? 'text-[#475569]'
                     : r.minGrade < GRADING_POLICY.passingGrade
                         ? 'text-[#842D60] font-bold'
                         : r.minGrade < GRADING_POLICY.honorSubjectFloor
@@ -2733,7 +3009,7 @@ const App = (() => {
                             : 'text-[#17243A]';
 
                 const avgColor = r.weightedAverage === null
-                    ? 'text-[#64748B]'
+                    ? 'text-[#475569]'
                     : r.isFailingOverall
                         ? 'text-[#842D60]'
                         : meetsHonorAveragePolicy(r.weightedAverage)
@@ -2754,10 +3030,10 @@ const App = (() => {
                                 <span class="font-semibold text-[#17243A] text-sm">${escapeHtml(r.student.full_name)}</span>
                                 ${genderBadgeHtml(r.student.gender, true)}
                             </div>
-                            <div class="font-mono text-xs text-[#64748B]">${escapeHtml(r.student.student_no)} &bull; Row ${r.excel_row}</div>
+                            <div class="font-mono text-xs text-[#475569]">${escapeHtml(r.student.student_no)} &bull; Row ${r.excel_row}</div>
                         </td>
                         ${subCells}
-                        <td class="py-2 px-2.5 text-center font-mono text-xs text-[#64748B] border-l border-[#D8DEE8]" title="${escapeHtml(studentExactFormula)}">
+                        <td class="py-2 px-2.5 text-center font-mono text-xs text-[#475569] border-l border-[#D8DEE8]" title="${escapeHtml(studentExactFormula)}">
                             ${r.gradedCount > 0 ? `${r.weightedSum.toFixed(1)} / ${formatUnits(r.isComplete ? r.totalSectionUnits : r.gradedUnits)}` : '—'}
                         </td>
                         <td class="py-2 px-2.5 text-center border-l border-[#D8DEE8] whitespace-nowrap">
@@ -2777,7 +3053,7 @@ const App = (() => {
 
         const fullRankingRowsHtml = (() => {
             if (standings.rankedRows.length === 0) {
-                return `<tr><td colspan="${standings.subjects.length + 6}" class="py-10 text-center text-sm text-[#64748B]">No students enrolled in this section yet.</td></tr>`;
+                return `<tr><td colspan="${standings.subjects.length + 6}" class="py-10 text-center text-sm text-[#475569]">No students enrolled in this section yet.</td></tr>`;
             }
             const femaleRanked = standings.rankedRows.filter(r => normalizeGenderClient(r.student.gender) === 'Female');
             const maleRanked = standings.rankedRows.filter(r => normalizeGenderClient(r.student.gender) === 'Male');
@@ -2880,22 +3156,22 @@ const App = (() => {
                         <h4 class="font-display font-bold text-[#17243A] text-sm sm:text-base">
                             Complete Section Quarterly Computation &amp; Ranking (${escapeHtml(quarterTitle)})
                         </h4>
-                        <p class="text-xs text-[#64748B] mt-0.5">
+                        <p class="text-xs text-[#475569] mt-0.5">
                             Each cell shows the student's subject grade and its weighted points <code>(Grade * Units)</code>. Failing grades (&lt; ${GRADING_POLICY.passingGrade}) appear in Berry Plum; grades 75–84 appear in Antique Amber.
                         </p>
                     </div>
                 </div>
                 <div class="flex-1 overflow-auto custom-scrollbar">
-                    <table class="w-full text-left border-collapse print-table">
+                    <table class="w-full text-left border-collapse print-table" aria-label="Quarterly Grade Sheet Table">
                         <thead class="sticky top-0 z-10">
-                            <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                                <th class="py-2.5 px-3 text-center">Rank</th>
-                                <th class="py-2.5 px-3.5 min-w-[180px]">Student Name</th>
+                            <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                <th scope="col" class="py-2.5 px-3 text-center">Rank</th>
+                                <th scope="col" class="py-2.5 px-3.5 min-w-[180px]">Student Name</th>
                                 ${subjectColsHeader}
-                                <th class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Sum / Units</th>
-                                <th class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Min Grade</th>
-                                <th class="py-2.5 px-3 text-center border-l border-[#D8DEE8]">Weighted Avg</th>
-                                <th class="py-2.5 px-3.5 border-l border-[#D8DEE8]">Status &amp; Pullout Check</th>
+                                <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Sum / Units</th>
+                                <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Min Grade</th>
+                                <th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8]">Weighted Avg</th>
+                                <th scope="col" class="py-2.5 px-3.5 border-l border-[#D8DEE8]">Status &amp; Pullout Check</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[#D8DEE8]/60 text-sm">
@@ -2909,11 +3185,15 @@ const App = (() => {
     }
 
     function filterStudentsBySection(sectionId) {
-        switchView('students');
+        switchView('students', false);
         const sectionSelect = document.getElementById('studentSectionFilter');
         if (sectionSelect) {
             sectionSelect.value = String(sectionId);
         }
+        updateBrowserUrl({
+            page: 'students',
+            section_id: sectionId ? Number(sectionId) : null
+        });
         renderStudentsView();
     }
 
@@ -2923,16 +3203,68 @@ const App = (() => {
         document.getElementById('studentSectionFilter').value = '';
         const gf = document.getElementById('studentGenderFilter');
         if (gf) gf.value = '';
+        updateBrowserUrl({ page: 'students' }, true);
         renderStudentsView();
     }
 
-    // ==================== MODAL HELPERS ====================
+    // ==================== ACCESSIBLE MODAL HELPERS (WCAG 2.1 AA) ====================
+    let modalTriggerElement = null;
+    const activeModalsStack = [];
+
+    function getFocusableElements(container) {
+        if (!container) return [];
+        return Array.from(container.querySelectorAll(
+            'button:not([disabled]):not([aria-hidden="true"]), [href]:not([aria-hidden="true"]), input:not([disabled]):not([type="hidden"]):not([aria-hidden="true"]), select:not([disabled]):not([aria-hidden="true"]), textarea:not([disabled]):not([aria-hidden="true"]), [tabindex]:not([tabindex="-1"]):not([aria-hidden="true"])'
+        )).filter(el => el.offsetParent !== null && !el.closest('.hidden'));
+    }
+
     function openModal(modalId) {
-        document.getElementById(modalId)?.classList.remove('hidden');
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+
+        if (activeModalsStack.length === 0) {
+            modalTriggerElement = document.activeElement;
+        }
+        if (!activeModalsStack.includes(modalId)) {
+            activeModalsStack.push(modalId);
+        }
+
+        modal.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+
+        requestAnimationFrame(() => {
+            const focusables = getFocusableElements(modal);
+            if (focusables.length > 0) {
+                const firstInteractive = focusables.find(el => el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') || focusables[0];
+                firstInteractive.focus();
+            }
+        });
     }
 
     function closeModal(modalId) {
-        document.getElementById(modalId)?.classList.add('hidden');
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        modal.classList.add('hidden');
+
+        const idx = activeModalsStack.indexOf(modalId);
+        if (idx !== -1) {
+            activeModalsStack.splice(idx, 1);
+        }
+
+        if (activeModalsStack.length === 0) {
+            document.body.classList.remove('overflow-hidden');
+            if (modalTriggerElement && typeof modalTriggerElement.focus === 'function') {
+                modalTriggerElement.focus();
+                modalTriggerElement = null;
+            }
+        } else {
+            const topModalId = activeModalsStack[activeModalsStack.length - 1];
+            const topModal = document.getElementById(topModalId);
+            if (topModal) {
+                const focusables = getFocusableElements(topModal);
+                if (focusables.length > 0) focusables[0].focus();
+            }
+        }
     }
 
     // ==================== SECTION MODAL ====================
@@ -2959,7 +3291,7 @@ const App = (() => {
 
         const checklist = document.getElementById('sectionModalSubjectsChecklist');
         if (state.subjects.length === 0) {
-            checklist.innerHTML = `<p class="text-xs text-[#64748B] py-2 px-1">No subjects in catalog yet. You can create subjects now or assign them later.</p>`;
+            checklist.innerHTML = `<p class="text-xs text-[#475569] py-2 px-1">No subjects in catalog yet. You can create subjects now or assign them later.</p>`;
         } else {
             checklist.innerHTML = state.subjects.map(sub => {
                 const checked = assignedSet.has(sub.id) ? 'checked' : '';
@@ -3085,7 +3417,7 @@ const App = (() => {
 
         const secChecklist = document.getElementById('subjectModalSectionsChecklist');
         if (state.sections.length === 0) {
-            secChecklist.innerHTML = `<p class="text-xs text-[#64748B] py-1.5 px-1">No sections created yet. You can assign this subject once a section is created.</p>`;
+            secChecklist.innerHTML = `<p class="text-xs text-[#475569] py-1.5 px-1">No sections created yet. You can assign this subject once a section is created.</p>`;
         } else {
             secChecklist.innerHTML = state.sections.map(sec => {
                 const checked = assignedSecSet.has(sec.id) ? 'checked' : '';
@@ -3095,7 +3427,7 @@ const App = (() => {
                             <input type="checkbox" name="subject_section_ids" value="${sec.id}" ${checked} class="w-4 h-4 rounded text-[#17243A] focus:ring-[#5276A7] border-[#D8DEE8]">
                             <span class="text-sm font-semibold text-[#17243A]">${escapeHtml(sec.section_name)}</span>
                         </span>
-                        <span class="text-xs text-[#64748B]">${escapeHtml(sec.year_level)}</span>
+                        <span class="text-xs text-[#475569]">${escapeHtml(sec.year_level)}</span>
                     </label>
                 `;
             }).join('');
@@ -3219,7 +3551,7 @@ const App = (() => {
             container.innerHTML = `
                 <div class="p-8 text-center">
                     <p class="text-sm font-semibold text-[#17243A]">No subjects in your catalog yet</p>
-                    <p class="text-xs text-[#64748B] mt-1">Click "+ New Subject" above to create your first subject and assign it here.</p>
+                    <p class="text-xs text-[#475569] mt-1">Click "+ New Subject" above to create your first subject and assign it here.</p>
                 </div>
             `;
             updateAssignSelectedTotals();
@@ -3250,7 +3582,7 @@ const App = (() => {
                                     <span class="text-sm font-semibold text-[#17243A]">${escapeHtml(sub.subject_name)}</span>
                                     <span class="text-xs font-bold text-[#0F766E]">(*${formatUnits(sub.units)} units)</span>
                                 </div>
-                                ${sub.description ? `<p class="text-xs text-[#64748B] mt-0.5 truncate">${escapeHtml(sub.description)}</p>` : ''}
+                                ${sub.description ? `<p class="text-xs text-[#475569] mt-0.5 truncate">${escapeHtml(sub.description)}</p>` : ''}
                             </div>
                         </label>
 
@@ -3418,7 +3750,7 @@ const App = (() => {
             container.innerHTML = `
                 <div class="p-8 text-center bg-[#F5F7FA] rounded-xl border border-dashed border-[#D8DEE8]">
                     <p class="text-sm font-semibold text-[#17243A]">No subjects assigned to this section yet</p>
-                    <p class="text-xs text-[#64748B] mt-1">Assign subjects to this section first to configure their input order.</p>
+                    <p class="text-xs text-[#475569] mt-1">Assign subjects to this section first to configure their input order.</p>
                 </div>
             `;
             if (previewEl) previewEl.textContent = 'No subjects';
@@ -3460,7 +3792,7 @@ const App = (() => {
                                 </span>
                                 ${isFirst ? '<span class="text-xs font-extrabold uppercase tracking-wider text-[#2C4870] bg-white px-2 py-0.5 rounded border border-[#C5D5EA]">★ First to Input</span>' : ''}
                             </div>
-                            <p class="text-xs text-[#64748B] truncate mt-0.5">${escapeHtml(sub.subject_name)}</p>
+                            <p class="text-xs text-[#475569] truncate mt-0.5">${escapeHtml(sub.subject_name)}</p>
                         </div>
                     </div>
 
@@ -3597,7 +3929,7 @@ const App = (() => {
         const sec = state.sections.find(s => s.id === secId);
         if (!sec) {
             countEl.textContent = '0 subjects';
-            previewEl.innerHTML = `<span class="text-[#64748B]">Select a section above to preview its assigned subjects.</span>`;
+            previewEl.innerHTML = `<span class="text-[#475569]">Select a section above to preview its assigned subjects.</span>`;
             return;
         }
 
@@ -3768,7 +4100,7 @@ const App = (() => {
             if (lastNameInp) lastNameInp.required = false;
 
             if (singleBtn) {
-                singleBtn.className = 'px-3 py-1.5 rounded-lg text-[#64748B] hover:text-[#17243A] transition cursor-pointer';
+                singleBtn.className = 'px-3 py-1.5 rounded-lg text-[#475569] hover:text-[#17243A] transition cursor-pointer';
             }
             if (bulkBtn) {
                 bulkBtn.className = 'px-3 py-1.5 rounded-lg bg-[#17243A] text-white shadow-2xs transition cursor-pointer flex items-center gap-1.5';
@@ -3785,7 +4117,7 @@ const App = (() => {
                 singleBtn.className = 'px-3 py-1.5 rounded-lg bg-[#17243A] text-white shadow-2xs transition cursor-pointer';
             }
             if (bulkBtn) {
-                bulkBtn.className = 'px-3 py-1.5 rounded-lg text-[#64748B] hover:text-[#17243A] transition cursor-pointer flex items-center gap-1.5';
+                bulkBtn.className = 'px-3 py-1.5 rounded-lg text-[#475569] hover:text-[#17243A] transition cursor-pointer flex items-center gap-1.5';
             }
             if (submitBtn) {
                 submitBtn.textContent = document.getElementById('studentIdInput')?.value ? 'Update Student' : 'Save Student';
@@ -3840,7 +4172,7 @@ const App = (() => {
         }
 
         if (parsedItems.length === 0) {
-            previewList.innerHTML = `<p class="text-[#64748B] italic py-1">Type or paste student names above (1 student per line) to preview how they will be enrolled...</p>`;
+            previewList.innerHTML = `<p class="text-[#475569] italic py-1">Type or paste student names above (1 student per line) to preview how they will be enrolled...</p>`;
             return;
         }
 
@@ -3865,7 +4197,7 @@ const App = (() => {
             return `
                 <div class="py-1.5 flex items-center justify-between gap-2">
                     <div class="flex items-center gap-2 min-w-0">
-                        <span class="font-mono text-[#64748B]">#${item.lineNum}</span>
+                        <span class="font-mono text-[#475569]">#${item.lineNum}</span>
                         <span class="font-semibold text-[#17243A] truncate">${escapeHtml(p.full_name)}</span>
                         ${genderBadgeHtml(p.gender, true)}
                     </div>
@@ -3902,6 +4234,10 @@ const App = (() => {
     }
 
     function openStudentModal(studentId = null, preselectedSectionId = null, mode = 'single') {
+        if (!studentId && state.currentUser?.role !== 'admin' && !state.currentUser?.can_add_student) {
+            showToast('Permission restricted: You do not have permission to enroll students. Contact your administrator.', 'error');
+            return;
+        }
         const form = document.getElementById('studentForm');
         form.reset();
         document.getElementById('studentIdInput').value = '';
@@ -4048,13 +4384,553 @@ const App = (() => {
         }
     }
 
+
+    // ==================== VIEW 7: TEACHER ACCOUNTS & PERMISSIONS (ADMIN ONLY) ====================
+    function renderUsersView() {
+        const tableBody = document.getElementById('usersTableBody');
+        const countSummary = document.getElementById('userCountSummary');
+        const unlockContainer = document.getElementById('adminPendingUnlocksContainer');
+        if (!tableBody) return;
+
+        // Render Pending Unlock Requests Banner
+        if (unlockContainer) {
+            const pending = state.pendingUnlockRequests || [];
+            if (pending.length > 0) {
+                unlockContainer.classList.remove('hidden');
+                unlockContainer.innerHTML = `
+                    <div class="rounded-2xl border border-[#F0D296] bg-[#FFF0D1] p-4.5 shadow-xs space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <span class="w-8 h-8 rounded-xl bg-[#B7791F] text-white flex items-center justify-center font-bold text-sm">⏳</span>
+                                <div>
+                                    <h4 class="font-display font-bold text-sm sm:text-base text-[#80530F]">
+                                        Pending Grade Sheet Unlock Requests (${pending.length})
+                                    </h4>
+                                    <p class="text-xs text-[#80530F]/90 mt-0.5">
+                                        Teachers have requested to unlock finalized grades to make corrections or rewrite grades.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                            ${pending.map(req => `
+                                <div class="bg-white rounded-xl p-3.5 border border-[#F0D296] shadow-2xs space-y-2">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div>
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-[#EBF1F8] text-[#2C4870]">
+                                                ${escapeHtml(req.section_name)} &bull; ${escapeHtml(req.quarter)}
+                                            </span>
+                                            <h5 class="text-xs font-bold text-[#17243A] mt-1">${escapeHtml(req.subject_code)} — ${escapeHtml(req.subject_name)}</h5>
+                                            <p class="text-xs text-[#475569]">Teacher: <strong class="text-[#17243A]">${escapeHtml(req.unlock_requested_by_name || 'Teacher')}</strong></p>
+                                        </div>
+                                        <span class="text-[11px] font-mono text-[#475569] shrink-0">${req.unlock_requested_at ? escapeHtml(req.unlock_requested_at) : ''}</span>
+                                    </div>
+                                    <div class="p-2.5 rounded-lg bg-[#F5F7FA] border border-[#D8DEE8] text-xs text-[#17243A] italic">
+                                        "${escapeHtml(req.unlock_reason)}"
+                                    </div>
+                                    <div class="flex items-center justify-end gap-2 pt-1">
+                                        <button type="button" onclick="App.submitUnlockDecision('reject', ${req.section_id}, ${req.subject_id}, '${req.quarter}')"
+                                            class="px-2.5 py-1 rounded-lg text-xs font-semibold text-[#842D60] bg-[#F5DFEB] hover:bg-[#eed3e3] border border-[#E2B8CF] transition cursor-pointer">
+                                            Reject
+                                        </button>
+                                        <button type="button" onclick="App.openReviewUnlockModal(${req.section_id}, ${req.subject_id}, '${req.quarter}')"
+                                            class="px-2.5 py-1 rounded-lg text-xs font-semibold text-[#5276A7] bg-[#EBF1F8] hover:bg-[#dce6f4] border border-[#C5D5EA] transition cursor-pointer">
+                                            Review
+                                        </button>
+                                        <button type="button" onclick="App.submitUnlockDecision('approve', ${req.section_id}, ${req.subject_id}, '${req.quarter}')"
+                                            class="px-3 py-1 rounded-lg text-xs font-bold text-white bg-[#0F766E] hover:bg-[#0c5f58] shadow-2xs transition cursor-pointer">
+                                            ✓ Approve &amp; Unlock
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } else {
+                unlockContainer.classList.add('hidden');
+                unlockContainer.innerHTML = '';
+            }
+        }
+
+        const searchQ = (document.getElementById('userSearchInput')?.value || '').trim().toLowerCase();
+        const roleFilter = document.getElementById('userRoleFilter')?.value || '';
+
+        const teachersList = state.teachers || [];
+        const filtered = teachersList.filter(u => {
+            if (roleFilter && u.role !== roleFilter) return false;
+            if (!searchQ) return true;
+            return (
+                (u.full_name && u.full_name.toLowerCase().includes(searchQ)) ||
+                (u.username && u.username.toLowerCase().includes(searchQ))
+            );
+        });
+
+        if (countSummary) {
+            countSummary.textContent = `${filtered.length} of ${teachersList.length} Accounts`;
+        }
+
+        if (filtered.length === 0) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="py-12 text-center text-[#475569]">
+                        <p class="text-sm font-semibold text-[#17243A]">No User Accounts Found</p>
+                        <p class="text-xs mt-1">Try adjusting your search or role filter, or click "+ Add Teacher User" above.</p>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tableBody.innerHTML = filtered.map(u => {
+            const isAdmin = u.role === 'admin';
+            const isSelf = state.currentUser && state.currentUser.id === u.id;
+            const canAdd = Boolean(u.can_add_student);
+            const isActive = Boolean(u.is_active);
+
+            // Teaching loads badges
+            const loadCount = Number(u.teaching_load_count || 0);
+            let loadHtml = '';
+            if (isAdmin) {
+                loadHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">Full Curriculum Access</span>`;
+            } else if (loadCount === 0) {
+                loadHtml = `<span class="text-xs text-[#475569] italic">No assigned sections</span>`;
+            } else {
+                const loads = (u.teaching_loads || []).slice(0, 3).map(l => 
+                    `<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]">${escapeHtml(l.section_name)}: ${escapeHtml(l.subject_code)}</span>`
+                ).join(' ');
+                loadHtml = `<div class="flex items-center gap-1.5 flex-wrap"><span class="font-bold text-xs text-[#17243A]">${loadCount} class${loadCount === 1 ? '' : 'es'}:</span> ${loads}${loadCount > 3 ? `<span class="text-xs text-[#475569] font-semibold">+${loadCount - 3} more</span>` : ''}</div>`;
+            }
+
+            // Student add permission badge / toggle
+            let permHtml = '';
+            if (isAdmin) {
+                permHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"><span>✓</span><span>Admin (Always)</span></span>`;
+            } else if (canAdd) {
+                permHtml = `
+                    <button type="button" onclick="App.toggleTeacherPermission(${u.id}, false)"
+                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC] hover:bg-[#c3e8df] transition cursor-pointer"
+                        title="Click to revoke student enrollment permission">
+                        <span>✓</span><span>Enabled</span>
+                    </button>
+                `;
+            } else {
+                permHtml = `
+                    <button type="button" onclick="App.toggleTeacherPermission(${u.id}, true)"
+                        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF] hover:bg-[#eed3e3] transition cursor-pointer"
+                        title="Click to grant student enrollment permission">
+                        <span>✕</span><span>Disabled</span>
+                    </button>
+                `;
+            }
+
+            return `
+                <tr class="hover:bg-[#F5F7FA] transition">
+                    <td class="py-3.5 px-4 font-semibold text-[#17243A]">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-full ${isAdmin ? 'bg-[#17243A] text-white' : 'bg-[#5276A7] text-white'} flex items-center justify-center font-bold text-xs shrink-0">
+                                ${isAdmin ? 'A' : 'T'}
+                            </div>
+                            <div>
+                                <span class="block">${escapeHtml(u.full_name)}</span>
+                                ${isSelf ? '<span class="text-[10px] font-bold uppercase tracking-wider text-[#0F766E] bg-[#D5F0EA] px-1.5 py-0.2 rounded border border-[#99D8CC]">Current User</span>' : ''}
+                            </div>
+                        </div>
+                    </td>
+                    <td class="py-3.5 px-4 font-mono text-xs text-[#475569]">
+                        ${escapeHtml(u.username)}
+                    </td>
+                    <td class="py-3.5 px-4">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${isAdmin ? 'bg-[#17243A] text-white' : 'bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]'}">
+                            ${isAdmin ? 'Administrator' : 'Teacher'}
+                        </span>
+                    </td>
+                    <td class="py-3.5 px-4">
+                        ${loadHtml}
+                    </td>
+                    <td class="py-3.5 px-4 text-center">
+                        ${permHtml}
+                    </td>
+                    <td class="py-3.5 px-4 text-center">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${isActive ? 'bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]' : 'bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]'}">
+                            ${isActive ? 'Active' : 'Inactive'}
+                        </span>
+                    </td>
+                    <td class="py-3.5 px-4 text-right">
+                        <div class="inline-flex items-center gap-1.5">
+                            <button type="button" onclick="App.openTeacherModal(${u.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Teacher Account">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                            </button>
+                            ${!isSelf ? `
+                                <button type="button" onclick="App.confirmDeleteTeacher(${u.id})" class="p-1.5 rounded-lg text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete Account">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function openTeacherModal(teacherId = null) {
+        const form = document.getElementById('teacherForm');
+        form.reset();
+        document.getElementById('teacherIdInput').value = '';
+
+        const roleSelect = document.getElementById('teacherRoleSelect');
+        const passStar = document.getElementById('teacherPasswordRequiredStar');
+        const passHelp = document.getElementById('teacherPasswordHelp');
+        const passInput = document.getElementById('teacherPasswordInput');
+        const permCheckbox = document.getElementById('teacherCanAddStudentInput');
+        const activeCheckbox = document.getElementById('teacherIsActiveInput');
+
+        if (teacherId) {
+            const u = (state.teachers || []).find(t => t.id === Number(teacherId));
+            if (!u) return;
+            document.getElementById('teacherModalTitle').textContent = `Edit User — ${u.full_name}`;
+            document.getElementById('teacherIdInput').value = u.id;
+            document.getElementById('teacherFullNameInput').value = u.full_name || '';
+            document.getElementById('teacherUsernameInput').value = u.username || '';
+            if (roleSelect) roleSelect.value = u.role || 'teacher';
+            if (permCheckbox) permCheckbox.checked = Boolean(u.can_add_student);
+            if (activeCheckbox) activeCheckbox.checked = Boolean(u.is_active);
+            
+            passInput.value = '';
+            passInput.removeAttribute('required');
+            passStar?.classList.add('hidden');
+            passHelp?.classList.remove('hidden');
+        } else {
+            document.getElementById('teacherModalTitle').textContent = 'Add Teacher User';
+            if (roleSelect) roleSelect.value = 'teacher';
+            if (permCheckbox) permCheckbox.checked = false;
+            if (activeCheckbox) activeCheckbox.checked = true;
+
+            passInput.value = '';
+            passInput.setAttribute('required', 'required');
+            passStar?.classList.remove('hidden');
+            passHelp?.classList.add('hidden');
+        }
+
+        onTeacherRoleSelectChange();
+        openModal('teacherModal');
+    }
+
+    function onTeacherRoleSelectChange() {
+        const role = document.getElementById('teacherRoleSelect')?.value || 'teacher';
+        const permCheckbox = document.getElementById('teacherCanAddStudentInput');
+        if (role === 'admin') {
+            if (permCheckbox) {
+                permCheckbox.checked = true;
+                permCheckbox.disabled = true;
+            }
+        } else {
+            if (permCheckbox) {
+                permCheckbox.disabled = false;
+            }
+        }
+    }
+
+    async function handleTeacherFormSubmit(e) {
+        e.preventDefault();
+        const id = document.getElementById('teacherIdInput').value;
+        const fullName = (document.getElementById('teacherFullNameInput')?.value || '').trim();
+        const username = (document.getElementById('teacherUsernameInput')?.value || '').trim();
+        const role = document.getElementById('teacherRoleSelect')?.value || 'teacher';
+        const password = document.getElementById('teacherPasswordInput')?.value || '';
+        const canAddStudent = document.getElementById('teacherCanAddStudentInput')?.checked ? 1 : 0;
+        const isActive = document.getElementById('teacherIsActiveInput')?.checked ? 1 : 0;
+
+        if (!fullName || !username) {
+            showToast('Full name and username are required.', 'error');
+            return;
+        }
+
+        if (!id && !password) {
+            showToast('Password is required for new accounts.', 'error');
+            return;
+        }
+
+        const submitBtn = document.getElementById('teacherSubmitBtn');
+        if (submitBtn) submitBtn.disabled = true;
+
+        try {
+            const res = await apiRequest('save_teacher', {
+                id: id ? Number(id) : null,
+                full_name: fullName,
+                username,
+                role,
+                password,
+                can_add_student: canAddStudent,
+                is_active: isActive,
+            });
+            applySystemState(res);
+            closeModal('teacherModal');
+            showToast(res.message, 'success');
+        } catch (err) {
+            showToast(err.message, 'error');
+        } finally {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    }
+
+    async function toggleTeacherPermission(teacherId, canAdd) {
+        try {
+            const res = await apiRequest('toggle_teacher_permission', {
+                id: Number(teacherId),
+                can_add_student: canAdd ? 1 : 0,
+            });
+            applySystemState(res);
+            showToast(res.message, 'success');
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
+    function confirmDeleteTeacher(teacherId) {
+        const u = (state.teachers || []).find(t => t.id === Number(teacherId));
+        if (!u) return;
+
+        document.getElementById('confirmModalTitle').textContent = `Delete Account: ${u.full_name}?`;
+        document.getElementById('confirmModalMessage').innerHTML = `
+            Are you sure you want to delete the account <strong>${escapeHtml(u.full_name)}</strong> (@${escapeHtml(u.username)})?
+            <br><span class="text-[#842D60] font-semibold text-xs mt-1 block">The teacher will no longer be able to log in or input grades.</span>
+        `;
+        const btn = document.getElementById('confirmModalActionBtn');
+        btn.textContent = 'Yes, Delete Account';
+        btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+                const res = await apiRequest('delete_teacher', { id: u.id });
+                applySystemState(res);
+                closeModal('confirmModal');
+                showToast(res.message, 'success');
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        };
+        openModal('confirmModal');
+    }
+
+    // ==================== GRADE LOCKING & UNLOCK REQUESTS ====================
+    async function lockCurrentGradesSheet() {
+        const secId = state.gradingSectionId;
+        const subId = state.gradingSubjectId;
+        const qtr = state.gradingQuarter;
+
+        if (!secId) return;
+
+        if (subId === 'ALL') {
+            showToast('Please select a specific subject tab to finalize and lock its grades.', 'info');
+            return;
+        }
+
+        const sec = state.sections.find(s => s.id === Number(secId));
+        const sub = sec?.assigned_subjects?.find(s => String(s.subject_id) === String(subId));
+        const subName = sub ? sub.subject_code : 'this subject';
+
+        document.getElementById('confirmModalTitle').textContent = `Finalize & Lock Grades?`;
+        document.getElementById('confirmModalMessage').innerHTML = `
+            Are you sure you want to finalize and lock in the grades for <strong>${escapeHtml(subName)}</strong> in <strong>${escapeHtml(sec?.section_name || '')} (${escapeHtml(qtr)})</strong>?
+            <br><span class="text-[#475569] text-xs mt-1 block">Once locked, inputs will become read-only. If you need to rewrite grades later, you can submit an official unlock request to the administrator.</span>
+        `;
+        const btn = document.getElementById('confirmModalActionBtn');
+        btn.textContent = 'Yes, Finalize & Lock';
+        btn.onclick = async () => {
+            btn.disabled = true;
+            try {
+                const res = await apiRequest('lock_grades', {
+                    section_id: Number(secId),
+                    subject_id: Number(subId),
+                    quarter: qtr,
+                });
+                applySystemState(res);
+                closeModal('confirmModal');
+                showToast(res.message, 'success');
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        };
+        openModal('confirmModal');
+    }
+
+    function openRequestUnlockModal() {
+        const secId = state.gradingSectionId;
+        const subId = state.gradingSubjectId;
+        const qtr = state.gradingQuarter;
+
+        if (!secId || subId === 'ALL') {
+            showToast('Please select a specific subject tab to request an unlock.', 'info');
+            return;
+        }
+
+        const sec = state.sections.find(s => s.id === Number(secId));
+        const sub = sec?.assigned_subjects?.find(s => String(s.subject_id) === String(subId));
+
+        document.getElementById('requestUnlockSectionId').value = secId;
+        document.getElementById('requestUnlockSubjectId').value = subId;
+        document.getElementById('requestUnlockQuarter').value = qtr;
+
+        document.getElementById('requestUnlockSectionName').textContent = sec ? sec.section_name : '';
+        document.getElementById('requestUnlockSubjectName').textContent = sub ? `${sub.subject_code} — ${sub.subject_name}` : '';
+        document.getElementById('requestUnlockQuarterName').textContent = qtr;
+        document.getElementById('requestUnlockReasonInput').value = '';
+
+        openModal('requestUnlockModal');
+    }
+
+    async function handleRequestUnlockSubmit(e) {
+        e.preventDefault();
+        const secId = document.getElementById('requestUnlockSectionId').value;
+        const subId = document.getElementById('requestUnlockSubjectId').value;
+        const qtr = document.getElementById('requestUnlockQuarter').value;
+        const reason = (document.getElementById('requestUnlockReasonInput')?.value || '').trim();
+
+        if (!reason) {
+            showToast('Please provide an explanation/reason for rewriting grades.', 'error');
+            return;
+        }
+
+        const submitBtn = document.getElementById('requestUnlockSubmitBtn');
+        if (submitBtn) submitBtn.disabled = true;
+
+        try {
+            const res = await apiRequest('request_unlock_grades', {
+                section_id: Number(secId),
+                subject_id: Number(subId),
+                quarter: qtr,
+                reason,
+            });
+            applySystemState(res);
+            closeModal('requestUnlockModal');
+            showToast(res.message, 'success');
+        } catch (err) {
+            showToast(err.message, 'error');
+        } finally {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    }
+
+    function openReviewUnlockModal(sectionId, subjectId, quarter) {
+        const key = `${sectionId}_${subjectId}_${quarter}`;
+        const req = (state.pendingUnlockRequests || []).find(r => r.section_id === Number(sectionId) && r.subject_id === Number(subjectId) && r.quarter === quarter)
+            || (state.gradeLocks && state.gradeLocks[key]);
+
+        if (!req) {
+            showToast('Unlock request details not found.', 'error');
+            return;
+        }
+
+        document.getElementById('reviewUnlockSectionId').value = sectionId;
+        document.getElementById('reviewUnlockSubjectId').value = subjectId;
+        document.getElementById('reviewUnlockQuarter').value = quarter;
+
+        document.getElementById('reviewUnlockTeacherName').textContent = req.unlock_requested_by_name || 'Teacher';
+        document.getElementById('reviewUnlockSectionName').textContent = req.section_name || `Section #${sectionId}`;
+        document.getElementById('reviewUnlockSubjectName').textContent = `${req.subject_code} — ${req.subject_name}`;
+        document.getElementById('reviewUnlockQuarterName').textContent = quarter;
+        document.getElementById('reviewUnlockDate').textContent = req.unlock_requested_at || 'Pending';
+        document.getElementById('reviewUnlockReasonText').textContent = req.unlock_reason || 'No explanation provided.';
+
+        openModal('unlockReviewModal');
+    }
+
+    async function submitUnlockDecision(decision, secId = null, subId = null, qtr = null) {
+        const targetSecId = secId ?? document.getElementById('reviewUnlockSectionId')?.value;
+        const targetSubId = subId ?? document.getElementById('reviewUnlockSubjectId')?.value;
+        const targetQtr = qtr ?? document.getElementById('reviewUnlockQuarter')?.value;
+
+        if (!targetSecId || !targetSubId || !targetQtr) return;
+
+        try {
+            const res = await apiRequest('approve_unlock_grades', {
+                section_id: Number(targetSecId),
+                subject_id: Number(targetSubId),
+                quarter: targetQtr,
+                decision,
+            });
+            applySystemState(res);
+            closeModal('unlockReviewModal');
+            showToast(res.message, 'success');
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
+    async function toggleGradeLockDirect(secId, subId, qtr, isLocked) {
+        if (subId === 'ALL') {
+            showToast('Please select a specific subject tab to lock or unlock.', 'info');
+            return;
+        }
+
+        try {
+            const res = await apiRequest('toggle_grade_lock', {
+                section_id: Number(secId),
+                subject_id: Number(subId),
+                quarter: qtr,
+                is_locked: isLocked ? 1 : 0,
+            });
+            applySystemState(res);
+            showToast(res.message, 'success');
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
     // ==================== EVENT LISTENERS ====================
     function bindEvents() {
         document.querySelectorAll('.nav-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.which === 2 || e.button === 1) {
+                    return;
+                }
                 const target = btn.getAttribute('data-nav');
-                if (target) switchView(target);
+                if (target) {
+                    e.preventDefault();
+                    switchView(target, true);
+                }
             });
+        });
+
+        window.addEventListener('popstate', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const pageFromUrl = urlParams.get('page') || urlParams.get('view') || (window.location.hash ? window.location.hash.replace('#', '') : 'dashboard');
+            const validPage = viewMeta[pageFromUrl] ? pageFromUrl : 'dashboard';
+
+            const urlSecId = urlParams.get('section_id');
+            const urlQtr = urlParams.get('quarter');
+            const urlSubId = urlParams.get('subject_id');
+
+            if (urlSecId && state.sections.some(s => s.id === Number(urlSecId))) {
+                const secId = Number(urlSecId);
+                state.dashboardSectionId = secId;
+                state.gradingSectionId = secId;
+                state.reportSectionId = secId;
+                const studentFilter = document.getElementById('studentSectionFilter');
+                if (studentFilter) studentFilter.value = String(secId);
+            }
+            if (urlQtr && ['Q1', 'Q2', 'Q3', 'Q4', 'FINAL'].includes(urlQtr)) {
+                state.gradingQuarter = urlQtr;
+                state.reportQuarter = urlQtr;
+            }
+            if (urlSubId) {
+                state.gradingSubjectId = String(urlSubId);
+            }
+
+            switchView(validPage, false);
+
+            if (validPage === 'grading') renderGradingView();
+            else if (validPage === 'reports') renderReportsView();
+            else if (validPage === 'students') renderStudentsView();
+            else if (validPage === 'sections') renderSectionsView();
+            else if (validPage === 'subjects') renderSubjectsView();
+            else if (validPage === 'users') renderUsersView();
+            else renderDashboard();
         });
 
         document.getElementById('mobileMenuBtn')?.addEventListener('click', openMobileSidebar);
@@ -4064,6 +4940,9 @@ const App = (() => {
         document.getElementById('subjectForm')?.addEventListener('submit', handleSubjectSubmit);
         document.getElementById('assignSubjectsForm')?.addEventListener('submit', handleAssignSubjectsSubmit);
         document.getElementById('studentForm')?.addEventListener('submit', handleStudentSubmit);
+        document.getElementById('teacherForm')?.addEventListener('submit', handleTeacherFormSubmit);
+        document.getElementById('teacherRoleSelect')?.addEventListener('change', onTeacherRoleSelectChange);
+        document.getElementById('requestUnlockForm')?.addEventListener('submit', handleRequestUnlockSubmit);
 
         document.getElementById('sectionSearchInput')?.addEventListener('input', renderSectionsView);
         document.getElementById('sectionYearFilter')?.addEventListener('change', renderSectionsView);
@@ -4072,21 +4951,53 @@ const App = (() => {
 
         document.getElementById('studentSearchInput')?.addEventListener('input', renderStudentsView);
         document.getElementById('studentYearFilter')?.addEventListener('change', renderStudentsView);
-        document.getElementById('studentSectionFilter')?.addEventListener('change', renderStudentsView);
+        document.getElementById('studentSectionFilter')?.addEventListener('change', e => {
+            if (state.currentView === 'students') {
+                updateBrowserUrl({
+                    page: 'students',
+                    section_id: e.target.value ? Number(e.target.value) : null
+                }, true);
+            }
+            renderStudentsView();
+        });
         document.getElementById('studentGenderFilter')?.addEventListener('change', renderStudentsView);
 
         // Grading View Selectors
         document.getElementById('gradingSectionSelect')?.addEventListener('change', e => {
             state.gradingSectionId = Number(e.target.value);
             state.gradingSubjectId = 'ALL';
+            if (state.currentView === 'grading') {
+                updateBrowserUrl({
+                    page: 'grading',
+                    section_id: state.gradingSectionId,
+                    quarter: state.gradingQuarter,
+                    subject_id: null
+                }, true);
+            }
             renderGradingView();
         });
         document.getElementById('gradingSubjectSelect')?.addEventListener('change', e => {
             state.gradingSubjectId = e.target.value;
+            if (state.currentView === 'grading') {
+                updateBrowserUrl({
+                    page: 'grading',
+                    section_id: state.gradingSectionId,
+                    quarter: state.gradingQuarter,
+                    subject_id: state.gradingSubjectId !== 'ALL' ? state.gradingSubjectId : null
+                }, true);
+            }
             renderGradingView();
         });
         document.getElementById('gradingQuarterSelect')?.addEventListener('change', e => {
             state.gradingQuarter = e.target.value;
+            if (state.currentView === 'grading') {
+                updateBrowserUrl({
+                    page: 'grading',
+                    section_id: state.gradingSectionId,
+                    quarter: state.gradingQuarter,
+                    subject_id: state.gradingSubjectId !== 'ALL' ? state.gradingSubjectId : null
+                }, true);
+            }
             renderGradingView();
         });
         document.getElementById('gradingStudentSearchInput')?.addEventListener('input', renderGradingView);
@@ -4095,10 +5006,24 @@ const App = (() => {
         // Reports View Selectors
         document.getElementById('reportSectionSelect')?.addEventListener('change', e => {
             state.reportSectionId = Number(e.target.value);
+            if (state.currentView === 'reports') {
+                updateBrowserUrl({
+                    page: 'reports',
+                    section_id: state.reportSectionId,
+                    quarter: state.reportQuarter
+                }, true);
+            }
             renderReportsView();
         });
         document.getElementById('reportQuarterSelect')?.addEventListener('change', e => {
             state.reportQuarter = e.target.value;
+            if (state.currentView === 'reports') {
+                updateBrowserUrl({
+                    page: 'reports',
+                    section_id: state.reportSectionId,
+                    quarter: state.reportQuarter
+                }, true);
+            }
             renderReportsView();
         });
 
@@ -4112,26 +5037,50 @@ const App = (() => {
             updateStudentModalSubjectPreview();
         });
 
+        document.getElementById('closeMobileSidebarBtn')?.addEventListener('click', closeMobileSidebar);
+
         document.addEventListener('keydown', e => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && state.currentView === 'grading') {
                 e.preventDefault();
                 saveCurrentGradesSheet();
                 return;
             }
-            if (e.key === 'Escape') {
-                ['confirmModal', 'subjectModal', 'assignSubjectsModal', 'reorderSubjectsModal', 'sectionModal', 'studentModal'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el && !el.classList.contains('hidden')) {
-                        closeModal(id);
+            // Accessible Tab-trap inside open modals
+            if (e.key === 'Tab' && activeModalsStack.length > 0) {
+                const topModalId = activeModalsStack[activeModalsStack.length - 1];
+                const topModal = document.getElementById(topModalId);
+                if (topModal && !topModal.classList.contains('hidden')) {
+                    const focusables = getFocusableElements(topModal);
+                    if (focusables.length > 0) {
+                        const firstEl = focusables[0];
+                        const lastEl = focusables[focusables.length - 1];
+                        if (e.shiftKey && document.activeElement === firstEl) {
+                            e.preventDefault();
+                            lastEl.focus();
+                        } else if (!e.shiftKey && document.activeElement === lastEl) {
+                            e.preventDefault();
+                            firstEl.focus();
+                        }
                     }
-                });
+                }
+            }
+            if (e.key === 'Escape') {
+                if (activeModalsStack.length > 0) {
+                    e.preventDefault();
+                    closeModal(activeModalsStack[activeModalsStack.length - 1]);
+                    return;
+                }
+                closeMobileSidebar();
             }
         });
     }
 
     function init() {
         bindEvents();
-        switchView('dashboard');
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialPage = urlParams.get('page') || urlParams.get('view') || (window.location.hash ? window.location.hash.replace('#', '') : 'dashboard');
+        const validPage = viewMeta[initialPage] ? initialPage : 'dashboard';
+        switchView(validPage, false);
         loadInitialData();
     }
 
@@ -4139,6 +5088,7 @@ const App = (() => {
 
     return {
         switchView,
+        updateBrowserUrl,
         openModal,
         closeModal,
         openSectionModal,
@@ -4186,5 +5136,17 @@ const App = (() => {
         onDashboardStudentSearch,
         openDashboardActiveSectionStudentModal,
         printReport,
+        renderUsersView,
+        openTeacherModal,
+        onTeacherRoleSelectChange,
+        toggleTeacherPermission,
+        confirmDeleteTeacher,
+        lockCurrentGradesSheet,
+        openRequestUnlockModal,
+        openReviewUnlockModal,
+        submitUnlockDecision,
+        toggleGradeLockDirect,
     };
 })();
+
+

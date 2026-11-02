@@ -49,7 +49,7 @@
                             cloud: '#F5F7FA',     /* Cloud White — Main Background */
                             border: '#D8DEE8',    /* Cool Gray — Borders */
                             ink: '#17243A',       /* Ink Navy — Primary Text */
-                            muted: '#64748B',     /* Slate Gray — Secondary Text */
+                            muted: '#475569',     /* Slate Gray — WCAG 2.1 AA Compliant (>= 4.5:1 Contrast) */
                         }
                     }
                 }
@@ -59,4 +59,6 @@
     <!-- Application Stylesheet -->
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
-<body class="h-full w-full overflow-x-hidden font-sans text-sm sm:text-base text-[#17243A] antialiased bg-[#F5F7FA] selection:bg-[#17243A] selection:text-white">
+<body data-role="<?= htmlspecialchars($currentUser['role'] ?? 'guest') ?>" class="h-full w-full overflow-x-hidden font-sans text-sm sm:text-base text-[#17243A] antialiased bg-[#F5F7FA] selection:bg-[#17243A] selection:text-white">
+    <!-- Skip to Main Content Link (WCAG 2.1 AA 2.4.1 Bypass Blocks) -->
+    <a href="#mainContent" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2.5 focus:bg-[#17243A] focus:text-white focus:rounded-xl focus:shadow-xl focus:border-2 focus:border-[#D5F0EA] font-semibold text-sm">Skip to main content</a>

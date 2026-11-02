@@ -33,7 +33,7 @@
     --ap-white: #FFFFFF;
     --ap-border: #D8DEE8;
     --ap-ink: #17243A;
-    --ap-muted: #64748B;
+    --ap-muted: #475569; /* Slate Gray 600: >= 5.5:1 contrast against white & cloud */
 }
 
 html, body {
@@ -300,4 +300,10 @@ input[data-grade-input="true"]:focus {
     .shadow-xl {
         box-shadow: none !important;
     }
+}
+
+/* ==================== ROLE-BASED ACCESS CONTROL (RBAC) ==================== */
+body[data-role="teacher"] .admin-only,
+body[data-role="teacher"] [data-admin-only="true"] {
+    display: none !important;
 }
