@@ -53,6 +53,16 @@ const App = (() => {
         dashboardStudentSearch: '',
         dashboardGenderFilter: '',
 
+        // Sections View state
+        sectionViewMode: 'grid', // 'grid' | 'table'
+        expandedSections: {},
+
+        // Students Directory state
+        studentSectionId: '',
+        studentPageSize: 10,
+        studentCurrentPage: 1,
+        studentGenderFilter: '',
+
         // Grading & Reports state
         gradingSectionId: null,
         gradingSubjectId: 'ALL',
@@ -205,7 +215,7 @@ const App = (() => {
                 isBelowHonorFloor: true,
                 label: 'Failed',
                 badgeClass: 'bg-[#F5DFEB] text-[#842D60] border-[#E2B8CF]',
-                inputClass: 'border-[#9B3F72] bg-[#F5DFEB]/60 text-[#842D60]',
+                inputClass: 'border-[#9B3F72] bg-[#F5DFEB]/60 text-[#842D60] font-bold',
             };
         }
         if (g < GRADING_POLICY.honorSubjectFloor) {
@@ -216,7 +226,18 @@ const App = (() => {
                 isBelowHonorFloor: true,
                 label: 'Passed (Below 85)',
                 badgeClass: 'bg-[#FFF0D1] text-[#80530F] border-[#F0D296]',
-                inputClass: 'border-[#B7791F] bg-[#FFF0D1]/60 text-[#80530F]',
+                inputClass: 'border-[#B7791F] bg-[#FFF0D1]/60 text-[#80530F] font-semibold',
+            };
+        }
+        if (meetsHonorAveragePolicy(g)) {
+            return {
+                state: 'honor',
+                isPassing: true,
+                isFailing: false,
+                isBelowHonorFloor: false,
+                label: 'Passed (Honor 90+)',
+                badgeClass: 'bg-[#D5F0EA] text-[#0F766E] border-[#99D8CC]',
+                inputClass: 'border-[#99D8CC] bg-[#D5F0EA]/60 text-[#0F766E] font-bold',
             };
         }
         return {
@@ -224,9 +245,9 @@ const App = (() => {
             isPassing: true,
             isFailing: false,
             isBelowHonorFloor: false,
-            label: meetsHonorAveragePolicy(g) ? 'Passed (Honor 90+)' : 'Passed',
-            badgeClass: 'bg-[#D5F0EA] text-[#0F766E] border-[#99D8CC]',
-            inputClass: 'border-[#D8DEE8] bg-white text-[#17243A]',
+            label: 'Passed',
+            badgeClass: 'bg-[#EBF1F8] text-[#2C4870] border-[#C5D5EA]',
+            inputClass: 'border-[#C5D5EA] bg-[#EBF1F8]/60 text-[#2C4870] font-semibold',
         };
     }
 
@@ -544,6 +565,7 @@ const App = (() => {
         }
 
         if (state.currentView === 'students' && urlSecId) {
+            state.studentSectionId = String(urlSecId);
             const secFilter = document.getElementById('studentSectionFilter');
             if (secFilter) secFilter.value = String(urlSecId);
         }
@@ -589,12 +611,40 @@ const App = (() => {
         openStudentModal(null, targetSecId, mode);
     }
 
+    function hideAppLoader() {
+        const loader = document.getElementById('appGlobalLoader');
+        if (loader) {
+            loader.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => {
+                loader.remove();
+            }, 500);
+        }
+
+        // Check if user just logged in and trigger welcome toast
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const hasJustLoggedIn = urlParams.get('login') === 'success' || sessionStorage.getItem('gf_just_logged_in') === 'true';
+            if (hasJustLoggedIn) {
+                sessionStorage.removeItem('gf_just_logged_in');
+                updateBrowserUrl({ login: null }, true);
+                const user = state.currentUser;
+                const greetingName = user?.full_name ? `Welcome back, ${user.full_name}!` : 'Welcome back!';
+                const roleBadge = user?.role === 'admin' ? 'Administrator' : 'Faculty Member';
+                setTimeout(() => {
+                    showToast(`🎓 ${greetingName} Signed in as ${roleBadge}.`, 'success');
+                }, 400);
+            }
+        } catch (e) {}
+    }
+
     async function loadInitialData() {
         try {
             const data = await apiRequest('get_all');
             applySystemState(data);
         } catch (err) {
             showToast(err.message, 'error');
+        } finally {
+            hideAppLoader();
         }
     }
 
@@ -1305,11 +1355,60 @@ const App = (() => {
     }
 
     // ==================== RENDER SECTIONS & SUBJECT ASSIGNMENTS ====================
+    function setSectionViewMode(mode) {
+        state.sectionViewMode = mode === 'table' ? 'table' : 'grid';
+        renderSectionsView();
+    }
+
+    function toggleSectionCurriculumExpand(sectionId) {
+        state.expandedSections[sectionId] = !state.expandedSections[sectionId];
+        renderSectionsView();
+    }
+
     function renderSectionsView() {
-        const container = document.getElementById('sectionsGridContainer');
+        const gridContainer = document.getElementById('sectionsGridContainer');
+        const tableContainer = document.getElementById('sectionsTableContainer');
+        const tableBody = document.getElementById('sectionsTableBody');
         const query = (document.getElementById('sectionSearchInput')?.value || '').trim().toLowerCase();
         const yearFilter = document.getElementById('sectionYearFilter')?.value || '';
 
+        // Calculate Top Summary KPIs
+        const totalSections = state.sections.length;
+        const totalStudents = state.sections.reduce((acc, s) => acc + (Number(s.student_count) || 0), 0);
+        const totalLoads = state.sections.reduce((acc, s) => acc + (Number(s.subject_count) || 0), 0);
+        const avgClassSize = totalSections > 0 ? (totalStudents / totalSections).toFixed(1) : '0';
+
+        const statTotalEl = document.getElementById('secStatTotal');
+        const statStudentsEl = document.getElementById('secStatStudents');
+        const statLoadsEl = document.getElementById('secStatLoads');
+        const statAvgEl = document.getElementById('secStatAvgClass');
+
+        if (statTotalEl) statTotalEl.textContent = totalSections;
+        if (statStudentsEl) statStudentsEl.textContent = totalStudents;
+        if (statLoadsEl) statLoadsEl.textContent = totalLoads;
+        if (statAvgEl) statAvgEl.textContent = avgClassSize;
+
+        // Sync View Mode Toggle Buttons
+        const gridBtn = document.getElementById('secViewGridBtn');
+        const tableBtn = document.getElementById('secViewTableBtn');
+        const isTable = state.sectionViewMode === 'table';
+
+        if (gridBtn && tableBtn) {
+            gridBtn.className = `px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                !isTable ? 'bg-[#17243A] text-white shadow-xs' : 'text-[#475569] hover:text-[#17243A]'
+            }`;
+            tableBtn.className = `px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                isTable ? 'bg-[#17243A] text-white shadow-xs' : 'text-[#475569] hover:text-[#17243A]'
+            }`;
+        }
+
+        if (gridContainer && tableContainer) {
+            gridContainer.classList.toggle('hidden', isTable);
+            tableContainer.classList.toggle('hidden', !isTable);
+            tableContainer.classList.toggle('flex', isTable);
+        }
+
+        // Filter sections
         const filtered = state.sections.filter(sec => {
             if (yearFilter && sec.year_level !== yearFilter) return false;
             if (!query) return true;
@@ -1322,150 +1421,293 @@ const App = (() => {
             return inName || inAdviser || inYear || inSubjects;
         });
 
+        const isTeacher = state.currentUser?.role === 'teacher';
+        const isAdmin = state.currentUser?.role === 'admin';
+
         if (filtered.length === 0) {
-            container.innerHTML = `
-                <div class="xl:col-span-2 bg-white rounded-2xl border border-[#D8DEE8] p-12 text-center">
-                    <h4 class="font-display font-bold text-[#17243A] text-base">No sections found</h4>
-                    <p class="text-sm text-[#475569] mt-1 max-w-md mx-auto">Create a section with its year level so you can assign subjects, enroll students, and compute quarterly rankings.</p>
-                    <button type="button" onclick="App.openSectionModal()" class="admin-only mt-4 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">+ Create Section
-                    </button>
+            const emptyHtml = `
+                <div class="col-span-full bg-white rounded-2xl border border-[#D8DEE8] p-12 text-center">
+                    <div class="w-12 h-12 rounded-2xl bg-[#EBF1F8] text-[#5276A7] flex items-center justify-center mx-auto mb-3">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                        </svg>
+                    </div>
+                    <h4 class="font-display font-bold text-[#17243A] text-base">No sections match your search or filter</h4>
+                    <p class="text-sm text-[#475569] mt-1 max-w-md mx-auto">Try clearing search terms or create a new section for this year level.</p>
+                    <div class="mt-4 flex items-center justify-center gap-2">
+                        <button type="button" onclick="document.getElementById('sectionSearchInput').value=''; document.getElementById('sectionYearFilter').value=''; App.renderSectionsView();" class="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8] border border-[#D8DEE8] transition cursor-pointer">
+                            Clear Filters
+                        </button>
+                        ${isAdmin ? `
+                            <button type="button" onclick="App.openSectionModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
+                                + Create Section
+                            </button>
+                        ` : ''}
+                    </div>
                 </div>
             `;
+            if (gridContainer) gridContainer.innerHTML = emptyHtml;
+            if (tableBody) tableBody.innerHTML = `<tr><td colspan="7" class="py-12 px-4 text-center">${emptyHtml}</td></tr>`;
             return;
         }
 
-        container.innerHTML = filtered.map((sec, sIndex) => {
-            const formulaStr = buildSectionFormulaString(sec.assigned_subjects, 21);
-            const isFullWidthCard = filtered.length === 1 || (filtered.length % 2 === 1 && sIndex === filtered.length - 1);
+        // ==================== 1. RENDER CARDS GRID (Progressive Disclosure) ====================
+        if (gridContainer) {
+            gridContainer.innerHTML = filtered.map(sec => {
+                const isExpanded = Boolean(state.expandedSections[sec.id]);
+                const femaleCount = Number(sec.female_count) || 0;
+                const maleCount = Number(sec.male_count) || 0;
+                const totalStudents = Number(sec.student_count) || 0;
+                const femalePct = totalStudents > 0 ? Math.round((femaleCount / totalStudents) * 100) : 50;
+                const subjects = sec.assigned_subjects || [];
+                const previewSubjects = subjects.slice(0, 4);
+                const remainingCount = Math.max(0, subjects.length - 4);
 
-            const isTeacher = state.currentUser?.role === 'teacher';
-            const subjectsListHtml = sec.assigned_subjects.length > 0
-                ? `<div class="grid grid-cols-1 ${isFullWidthCard ? 'lg:grid-cols-2' : ''} gap-2">
-                    ${sec.assigned_subjects.map((sub, idx) => `
-                        <div class="px-3.5 py-2.5 flex items-center justify-between gap-2.5 rounded-xl border border-[#D8DEE8] bg-[#F5F7FA]/80 hover:bg-white transition">
-                            <div class="min-w-0">
-                                <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="text-xs font-mono font-bold text-[#475569]">Col ${excelColLetter(idx)}</span>
-                                    <span class="font-mono text-xs font-bold text-[#2C4870] bg-[#EBF1F8] px-2 py-0.5 rounded-md border border-[#C5D5EA]">${escapeHtml(sub.subject_code)}</span>
-                                    <span class="text-sm font-semibold text-[#17243A] truncate">${escapeHtml(sub.subject_name)}</span>
-                                    <span class="text-xs font-bold text-[#0F766E] bg-[#D5F0EA] px-2 py-0.5 rounded-md border border-[#99D8CC]">*${formatUnits(sub.units)}u</span>
-                                </div>
-                                <div class="text-xs text-[#475569] mt-1 flex items-center gap-1.5 flex-wrap">
-                                    ${sub.schedule ? `<span class="font-mono text-slate-500">${escapeHtml(sub.schedule)}</span>` : ''}
-                                    ${sub.schedule ? `<span>&bull;</span>` : ''}
-                                    ${sub.teacher_id || sub.instructor ? `
-                                        <button type="button" onclick="${isTeacher ? '' : `App.openAssignSubjectTeacherModal(${sub.teacher_id || 'null'}, ${sec.id}, ${sub.subject_id})`}" class="inline-flex items-center gap-1 font-semibold text-[#0F766E] bg-[#D5F0EA] ${isTeacher ? '' : 'hover:bg-[#c2e8df] cursor-pointer'} px-2 py-0.5 rounded border border-[#99D8CC] transition" title="${isTeacher ? 'Assigned Instructor' : 'Click to change or re-assign teacher'}">
-                                            <span>👨‍🏫 ${escapeHtml(sub.instructor)}</span>
-                                            ${!isTeacher ? `<svg class="w-3 h-3 text-[#0F766E]/70" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>` : ''}
-                                        </button>
-                                    ` : `
-                                        <button type="button" onclick="App.openAssignSubjectTeacherModal(null, ${sec.id}, ${sub.subject_id})" class="admin-only inline-flex items-center gap-1 font-semibold text-[#80530F] bg-[#FFF0D1] hover:bg-[#ffe3ab] px-2 py-0.5 rounded border border-[#F0D296] transition cursor-pointer" title="Click to assign a teacher">
-                                            <span>⚠️ No Teacher Assigned</span>
-                                            <span class="underline font-bold">+ Assign</span>
-                                        </button>
-                                    `}
-                                </div>
+                // Preview Chips (Compact Cloud)
+                const subjectChipsHtml = previewSubjects.map(sub => `
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#F5F7FA] hover:bg-[#EBF1F8] border border-[#D8DEE8] text-[#17243A] transition" title="${escapeHtml(sub.subject_name)} • ${sub.instructor ? 'Instructor: ' + escapeHtml(sub.instructor) : 'No instructor assigned'}">
+                        <span class="font-bold text-[#2C4870]">${escapeHtml(sub.subject_code)}</span>
+                        <span class="text-[#0F766E] font-bold">*${formatUnits(sub.units)}u</span>
+                    </span>
+                `).join('');
+
+                // Full Expanded Curriculum Table
+                const fullCurriculumHtml = subjects.length > 0
+                    ? `
+                        <div class="mt-3 pt-3 border-t border-[#D8DEE8] space-y-2">
+                            <div class="flex items-center justify-between text-xs font-bold text-[#475569] uppercase tracking-wider">
+                                <span>Curriculum Breakdown (${subjects.length} Loads)</span>
+                                ${isAdmin && subjects.length > 1 ? `
+                                    <button type="button" onclick="App.openReorderSubjectsModal(${sec.id})" class="text-xs font-bold text-[#5276A7] hover:underline cursor-pointer">
+                                        ⇅ Reorder
+                                    </button>
+                                ` : ''}
                             </div>
-                            <div class="flex items-center gap-1.5 shrink-0">
-                                <button type="button" onclick="App.openSectionGrading(${sec.id}, ${sub.subject_id})" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input grades for this subject">
-                                    Input Grades
-                                </button>
-                                <button type="button" onclick="App.unassignSingleSubject(${sec.id}, ${sub.subject_id})" class="admin-only p-1.5 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove subject from this section">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                </button>
+                            <div class="space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+                                ${subjects.map((sub, idx) => `
+                                    <div class="p-2.5 rounded-xl border border-[#D8DEE8] bg-[#F5F7FA]/70 hover:bg-white flex items-center justify-between gap-2 text-xs transition">
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="font-mono text-[11px] font-bold text-[#2C4870] bg-[#EBF1F8] px-1.5 py-0.5 rounded border border-[#C5D5EA]">${escapeHtml(sub.subject_code)}</span>
+                                                <span class="font-semibold text-[#17243A] truncate max-w-[140px]">${escapeHtml(sub.subject_name)}</span>
+                                                <span class="font-bold text-[#0F766E] text-[11px]">${formatUnits(sub.units)}u</span>
+                                            </div>
+                                            <div class="text-[11px] text-[#475569] mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                                ${sub.schedule ? `<span class="font-mono text-slate-500">${escapeHtml(sub.schedule)} &bull;</span>` : ''}
+                                                ${sub.instructor ? `
+                                                    <span class="text-[#0F766E] font-medium font-sans">👨‍🏫 ${escapeHtml(sub.instructor)}</span>
+                                                ` : `
+                                                    <span class="text-[#80530F] font-medium font-sans">⚠️ TBA</span>
+                                                `}
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-1 shrink-0">
+                                            <button type="button" onclick="App.openSectionGrading(${sec.id}, ${sub.subject_id})" class="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input grades for this subject">
+                                                Grades
+                                            </button>
+                                            ${isAdmin ? `
+                                                <button type="button" onclick="App.openAssignSubjectTeacherModal(${sub.teacher_id || 'null'}, ${sec.id}, ${sub.subject_id})" class="p-1 rounded-lg text-[#5276A7] hover:bg-[#EBF1F8] transition cursor-pointer" title="Change Instructor">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                                </button>
+                                                <button type="button" onclick="App.unassignSingleSubject(${sec.id}, ${sub.subject_id})" class="p-1 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove subject from section">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                                </button>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
                             </div>
                         </div>
-                    `).join('')}
-                   </div>`
-                : `<div class="rounded-xl border border-dashed border-[#D8DEE8] p-5 text-center bg-[#F5F7FA]/60">
-                        <p class="text-sm text-[#475569]">${isTeacher ? 'No subjects handled by you in' : 'No subjects assigned to'} <strong class="text-[#17243A]">${escapeHtml(sec.section_name)}</strong> yet.</p>
-                        ${!isTeacher ? `
-                            <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[#5276A7] hover:text-[#17243A] cursor-pointer">
-                                + Assign Subjects Now
-                            </button>
-                        ` : ''}
-                   </div>`;
+                    `
+                    : '';
 
-            return `
-                <div class="${isFullWidthCard ? 'xl:col-span-2' : ''} bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex flex-col justify-between p-4 sm:p-5 hover:border-[#5276A7] transition">
-                    <div>
-                        <div class="flex items-start justify-between gap-3">
-                            <div>
-                                <div class="flex items-center gap-2.5 flex-wrap">
-                                    <h3 class="font-display font-bold text-lg text-[#17243A]">${escapeHtml(sec.section_name)}</h3>
-                                    <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full border ${yearLevelBadgeClass(sec.year_level)}">
-                                        ${escapeHtml(sec.year_level)}
+                return `
+                    <div class="bg-white rounded-2xl border border-[#D8DEE8] hover:border-[#5276A7] shadow-2xs hover:shadow-md transition-all flex flex-col justify-between p-4 sm:p-5">
+                        <div class="space-y-3.5">
+                            <!-- Card Header: Title, Level & Admin Actions -->
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#EBF1F8] text-[#2C4870] flex items-center justify-center font-bold text-base border border-[#C5D5EA] shrink-0">
+                                        <svg class="w-5 h-5 text-[#2C4870]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <h3 class="font-display font-extrabold text-base sm:text-lg text-[#17243A] leading-tight">${escapeHtml(sec.section_name)}</h3>
+                                            <span class="px-2 py-0.5 text-[11px] font-semibold rounded-md border ${yearLevelBadgeClass(sec.year_level)}">
+                                                ${escapeHtml(sec.year_level)}
+                                            </span>
+                                        </div>
+                                        <p class="text-xs text-[#475569] mt-0.5 flex items-center gap-1">
+                                            <span>Adviser:</span>
+                                            <strong class="text-[#17243A]">${sec.adviser ? escapeHtml(sec.adviser) : '<span class="italic text-slate-400 font-normal">None Assigned</span>'}</strong>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                ${isAdmin ? `
+                                    <div class="flex items-center gap-1 shrink-0">
+                                        <button type="button" onclick="App.openSectionModal(${sec.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit section">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                            </svg>
+                                        </button>
+                                        <button type="button" onclick="App.confirmDeleteSection(${sec.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete section">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                ` : ''}
+                            </div>
+
+                            <!-- Section Metrics Card -->
+                            <div class="bg-[#F5F7FA] rounded-xl p-3 border border-[#D8DEE8] space-y-2 text-xs">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-[#475569] font-medium">Enrolled Students:</span>
+                                    <span class="font-bold text-[#17243A]">
+                                        ${totalStudents} Students
+                                        <span class="text-[11px] font-normal text-[#475569] ml-1">
+                                            (<span class="text-[#842D60] font-semibold">&#9792; ${femaleCount}</span> / <span class="text-[#2C4870] font-semibold">&#9794; ${maleCount}</span>)
+                                        </span>
                                     </span>
                                 </div>
-                                <p class="text-xs sm:text-sm text-[#475569] mt-1">
-                                    ${sec.adviser ? `Adviser: <strong class="text-[#17243A]">${escapeHtml(sec.adviser)}</strong> &bull; ` : ''}
-                                    <span>${sec.student_count} Student${sec.student_count === 1 ? '' : 's'} (<span class="text-[#842D60] font-semibold">&#9792; ${sec.female_count || 0} Female</span>, <span class="text-[#2C4870] font-semibold">&#9794; ${sec.male_count || 0} Male</span>)</span>
-                                    &bull;
-                                    <span>${isTeacher ? 'My Handled Subjects: ' : ''}${sec.subject_count} Subject${sec.subject_count === 1 ? '' : 's'} (${isTeacher ? 'Load: ' : 'Divisor: '}<strong class="text-[#17243A]">${formatUnits(sec.total_units)} units</strong>)</span>
-                                </p>
-                            </div>
 
-                            <div class="admin-only flex items-center gap-1.5">
-                                <button type="button" onclick="App.openSectionModal(${sec.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit section details">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
-                                    </svg>
-                                </button>
-                                <button type="button" onclick="App.confirmDeleteSection(${sec.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete section">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
+                                <!-- Subtle Gender Proportion Bar -->
+                                <div class="w-full bg-[#D8DEE8] h-1.5 rounded-full overflow-hidden flex">
+                                    <div class="bg-[#9B3F72] h-full" style="width: ${femalePct}%" title="Female: ${femaleCount} (${femalePct}%)"></div>
+                                    <div class="bg-[#5276A7] h-full" style="width: ${100 - femalePct}%" title="Male: ${maleCount} (${100 - femalePct}%)"></div>
+                                </div>
 
-                        <!-- Section Formula Preview -->
-                        <div class="mt-3 px-3.5 py-2 rounded-xl bg-[#17243A] text-slate-200 text-xs flex items-center justify-between gap-2 overflow-x-auto">
-                            <span class="text-slate-300 shrink-0 font-medium">${isTeacher ? 'My Handled Subjects Formula:' : 'Weighted Ranking Formula:'}</span>
-                            <code class="text-[#D5F0EA] font-mono font-semibold truncate">${escapeHtml(formulaStr)}</code>
-                        </div>
-
-                        <div class="mt-3.5">
-                            <div class="flex items-center justify-between mb-2">
-                                <span class="text-xs font-bold uppercase tracking-wider text-[#475569]">${isTeacher ? 'My Handled Subjects' : 'Assigned Subjects'} (${sec.subject_count})</span>
-                                <div class="admin-only flex items-center gap-2">
-                                    ${sec.assigned_subjects.length > 1 ? `
-                                        <button type="button" onclick="App.openReorderSubjectsModal(${sec.id})" class="text-xs font-semibold text-[#2C4870] hover:text-[#17243A] hover:underline cursor-pointer flex items-center gap-1">
-                                            <span>⇅ Order</span>
-                                        </button>
-                                    ` : ''}
-                                    <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="text-xs sm:text-sm font-semibold text-[#5276A7] hover:text-[#17243A] cursor-pointer">
-                                        + Assign / Manage Subjects
-                                    </button>
+                                <div class="flex items-center justify-between pt-1 border-t border-[#D8DEE8]/70">
+                                    <span class="text-[#475569] font-medium">Curriculum Load:</span>
+                                    <span class="font-bold text-[#0F766E]">
+                                        ${sec.subject_count} Subjects &bull; ${formatUnits(sec.total_units)} Units
+                                    </span>
                                 </div>
                             </div>
-                            ${subjectsListHtml}
-                        </div>
-                    </div>
 
-                    <div class="mt-4 pt-3 border-t border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2.5">
-                        <div class="flex items-center gap-2">
-                            <button type="button" onclick="App.openStudentModal(null, ${sec.id})" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-[#17243A] bg-[#F5F7FA] hover:bg-[#EBF1F8] border border-[#D8DEE8] transition cursor-pointer">
-                                + Add Student
-                            </button>
-                            <button type="button" onclick="App.openStudentModal(null, ${sec.id}, 'bulk')" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#dce6f4] border border-[#C5D5EA] transition cursor-pointer" title="Bulk add multiple students (1 per line)">
-                                + Bulk Add
-                            </button>
+                            <!-- Subject Chips Cloud (Progressive Disclosure) -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1.5">
+                                    <span class="text-[11px] font-bold uppercase tracking-wider text-[#475569]">
+                                        Curriculum Preview
+                                    </span>
+                                    ${isAdmin ? `
+                                        <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="text-xs font-semibold text-[#5276A7] hover:underline cursor-pointer">
+                                            + Assign
+                                        </button>
+                                    ` : ''}
+                                </div>
+
+                                ${subjects.length > 0 ? `
+                                    <div class="flex flex-wrap gap-1.5">
+                                        ${subjectChipsHtml}
+                                        ${remainingCount > 0 ? `
+                                            <span class="inline-flex items-center px-2 py-1 rounded-lg text-xs font-semibold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">
+                                                +${remainingCount} more
+                                            </span>
+                                        ` : ''}
+                                    </div>
+
+                                    <button type="button" onclick="App.toggleSectionCurriculumExpand(${sec.id})"
+                                        class="mt-2 text-xs font-bold text-[#5276A7] hover:text-[#17243A] flex items-center gap-1 transition cursor-pointer">
+                                        <span>${isExpanded ? '▲ Hide Full Curriculum' : `▼ View Full Curriculum &amp; Instructors (${subjects.length})`}</span>
+                                    </button>
+                                    ${isExpanded ? fullCurriculumHtml : ''}
+                                ` : `
+                                    <div class="p-3 rounded-xl border border-dashed border-[#D8DEE8] text-center bg-[#F5F7FA]/70">
+                                        <p class="text-xs text-[#475569]">No subjects assigned to this section yet.</p>
+                                        ${isAdmin ? `
+                                            <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="mt-1 text-xs font-bold text-[#5276A7] hover:underline cursor-pointer">
+                                                + Assign Subjects Now
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                `}
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <button type="button" onclick="App.openSectionGrading(${sec.id})" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
-                                Teacher Grade Input
-                            </button>
-                            <button type="button" onclick="App.openSectionReport(${sec.id})" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] shadow-2xs transition cursor-pointer">
-                                Quarterly Report &amp; Ranking
-                            </button>
+
+                        <!-- Card Footer Action Buttons -->
+                        <div class="mt-4 pt-3.5 border-t border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="App.openStudentModal(null, ${sec.id})" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-[#17243A] bg-[#F5F7FA] hover:bg-[#EBF1F8] border border-[#D8DEE8] transition cursor-pointer" title="Enroll single student">
+                                    + Student
+                                </button>
+                                <button type="button" onclick="App.openStudentModal(null, ${sec.id}, 'bulk')" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#dce6f4] border border-[#C5D5EA] transition cursor-pointer" title="Bulk enroll students">
+                                    + Bulk
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="App.openSectionGrading(${sec.id})" class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Open Grade Sheet">
+                                    Grades
+                                </button>
+                                <button type="button" onclick="App.openSectionReport(${sec.id})" class="px-3 py-1.5 rounded-xl text-xs font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer" title="View Rankings &amp; Report">
+                                    Report &rarr;
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `;
-        }).join('');
+                `;
+            }).join('');
+        }
+
+        // ==================== 2. RENDER TABLE VIEW ====================
+        if (tableBody) {
+            tableBody.innerHTML = filtered.map((sec, idx) => {
+                const femaleCount = Number(sec.female_count) || 0;
+                const maleCount = Number(sec.male_count) || 0;
+                const totalStudents = Number(sec.student_count) || 0;
+
+                return `
+                    <tr class="hover:bg-[#F5F7FA]/80 transition">
+                        <td class="py-3 px-4 align-middle text-center font-mono text-xs text-[#475569]">${idx + 1}</td>
+                        <td class="py-3 px-4 align-middle whitespace-nowrap">
+                            <button type="button" onclick="App.openSectionGrading(${sec.id})" class="font-display font-bold text-sm text-[#17243A] hover:text-[#5276A7] transition cursor-pointer">
+                                ${escapeHtml(sec.section_name)}
+                            </button>
+                        </td>
+                        <td class="py-3 px-4 align-middle whitespace-nowrap">
+                            <span class="px-2.5 py-0.5 text-xs font-semibold rounded-md border ${yearLevelBadgeClass(sec.year_level)}">
+                                ${escapeHtml(sec.year_level)}
+                            </span>
+                        </td>
+                        <td class="py-3 px-4 align-middle whitespace-nowrap">
+                            ${sec.adviser ? `<span class="font-medium text-xs text-[#17243A]">👨‍🏫 ${escapeHtml(sec.adviser)}</span>` : '<span class="italic text-xs text-slate-400">None</span>'}
+                        </td>
+                        <td class="py-3 px-4 align-middle whitespace-nowrap">
+                            <span class="font-bold text-xs text-[#17243A]">${totalStudents}</span>
+                            <span class="text-xs text-[#475569] ml-1">(<span class="text-[#842D60] font-semibold">&#9792; ${femaleCount}</span> / <span class="text-[#2C4870] font-semibold">&#9794; ${maleCount}</span>)</span>
+                        </td>
+                        <td class="py-3 px-4 align-middle whitespace-nowrap">
+                            <span class="inline-flex items-center gap-1 font-semibold text-xs text-[#0F766E] bg-[#D5F0EA] px-2.5 py-1 rounded-lg border border-[#99D8CC]">
+                                <span>${sec.subject_count} Subjects</span>
+                                <span class="font-bold">(${formatUnits(sec.total_units)}u)</span>
+                            </span>
+                        </td>
+                        <td class="py-3 px-4 align-middle text-right whitespace-nowrap">
+                            <div class="inline-flex items-center gap-1.5">
+                                <button type="button" onclick="App.openSectionGrading(${sec.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input Grades">
+                                    Grades
+                                </button>
+                                <button type="button" onclick="App.openSectionReport(${sec.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer" title="View Report">
+                                    Report
+                                </button>
+                                ${isAdmin ? `
+                                    <button type="button" onclick="App.openSectionModal(${sec.id})" class="p-1 rounded-lg text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Section">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                    </button>
+                                    <button type="button" onclick="App.confirmDeleteSection(${sec.id})" class="p-1 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete Section">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
     }
 
     // ==================== RENDER SUBJECTS VIEW ====================
@@ -1564,18 +1806,170 @@ const App = (() => {
         }
     }
 
+    function setStudentSectionFilter(secId) {
+        state.studentSectionId = secId ? String(secId) : '';
+        state.studentCurrentPage = 1;
+        const secSelect = document.getElementById('studentSectionFilter');
+        if (secSelect) secSelect.value = state.studentSectionId;
+        if (state.currentView === 'students') {
+            updateBrowserUrl({
+                page: 'students',
+                section_id: state.studentSectionId ? Number(state.studentSectionId) : null
+            }, true);
+        }
+        renderStudentsView();
+    }
+
+    function setStudentGenderFilter(gender) {
+        state.studentGenderFilter = gender || '';
+        state.studentCurrentPage = 1;
+        const gf = document.getElementById('studentGenderFilter');
+        if (gf) gf.value = state.studentGenderFilter;
+        renderStudentsView();
+    }
+
+    function setStudentPageSize(size) {
+        state.studentPageSize = size === 'ALL' ? 'ALL' : Number(size) || 10;
+        state.studentCurrentPage = 1;
+        renderStudentsView();
+    }
+
+    function setStudentPage(page) {
+        state.studentCurrentPage = Math.max(1, Number(page) || 1);
+        renderStudentsView();
+    }
+
+    function openStudentSubjectsModal(studentId) {
+        const student = state.students.find(s => Number(s.id) === Number(studentId));
+        if (!student) return;
+
+        const nameEl = document.getElementById('ssmStudentName');
+        const noEl = document.getElementById('ssmStudentNo');
+        const secEl = document.getElementById('ssmSectionName');
+        const unitsEl = document.getElementById('ssmTotalUnits');
+        const tbody = document.getElementById('studentSubjectsModalBody');
+
+        if (nameEl) nameEl.textContent = student.full_name;
+        if (noEl) noEl.textContent = `(${student.student_no})`;
+        if (secEl) secEl.textContent = `${student.section_name} • ${student.year_level}`;
+
+        const subjects = student.assigned_subjects || [];
+        const totalUnits = subjects.reduce((sum, s) => sum + (Number(s.units) || 0), 0);
+        if (unitsEl) unitsEl.textContent = `${totalUnits} Units Total`;
+
+        if (tbody) {
+            if (subjects.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="py-8 px-4 text-center text-[#475569]">
+                            <p class="font-bold text-[#17243A]">No subjects currently assigned</p>
+                            <p class="text-xs mt-1">This section doesn't have assigned subjects yet.</p>
+                        </td>
+                    </tr>
+                `;
+            } else {
+                tbody.innerHTML = subjects.map(sub => `
+                    <tr class="hover:bg-[#F5F7FA] transition">
+                        <td class="py-2.5 px-3.5 font-mono font-bold text-[#17243A] whitespace-nowrap">${escapeHtml(sub.subject_code)}</td>
+                        <td class="py-2.5 px-3.5">
+                            <span class="font-semibold text-[#17243A]">${escapeHtml(sub.subject_name)}</span>
+                        </td>
+                        <td class="py-2.5 px-3.5 text-center font-bold text-[#0F766E]">${formatUnits(sub.units)}</td>
+                        <td class="py-2.5 px-3.5 text-[#475569]">
+                            ${sub.teacher_name ? `<span class="font-medium text-[#17243A]">${escapeHtml(sub.teacher_name)}</span>` : '<span class="italic text-slate-400">TBA</span>'}
+                        </td>
+                        <td class="py-2.5 px-3.5 text-[#475569]">
+                            ${sub.schedule ? `<span class="font-medium text-xs bg-[#F5F7FA] border border-[#D8DEE8] px-2 py-0.5 rounded">${escapeHtml(sub.schedule)}</span>` : '<span class="italic text-slate-400">—</span>'}
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        openModal('studentSubjectsModal');
+    }
+
     function renderStudentsView() {
         const tbody = document.getElementById('studentsTableBody');
+        const paginationContainer = document.getElementById('studentPaginationContainer');
         const query = (document.getElementById('studentSearchInput')?.value || '').trim().toLowerCase();
         const yearFilter = document.getElementById('studentYearFilter')?.value || '';
-        const sectionFilter = document.getElementById('studentSectionFilter')?.value || '';
-        const genderFilter = document.getElementById('studentGenderFilter')?.value || '';
+        const sectionFilter = state.studentSectionId || document.getElementById('studentSectionFilter')?.value || '';
+        const genderFilter = state.studentGenderFilter || document.getElementById('studentGenderFilter')?.value || '';
+
+        // Update Top Summary KPI Metric Cards
+        const totalAll = state.students.length;
+        const femalesAll = state.students.filter(s => normalizeGenderClient(s.gender) === 'Female').length;
+        const malesAll = state.students.filter(s => normalizeGenderClient(s.gender) === 'Male').length;
+        const activeSecCount = state.sections.length;
+
+        const statTotalEl = document.getElementById('studentStatTotal');
+        const statFemaleEl = document.getElementById('studentStatFemale');
+        const statFemalePctEl = document.getElementById('studentStatFemalePct');
+        const statMaleEl = document.getElementById('studentStatMale');
+        const statMalePctEl = document.getElementById('studentStatMalePct');
+        const statSecEl = document.getElementById('studentStatSections');
+
+        if (statTotalEl) statTotalEl.textContent = totalAll;
+        if (statFemaleEl) statFemaleEl.textContent = femalesAll;
+        if (statFemalePctEl) statFemalePctEl.textContent = totalAll > 0 ? `${Math.round((femalesAll / totalAll) * 100)}%` : '0%';
+        if (statMaleEl) statMaleEl.textContent = malesAll;
+        if (statMalePctEl) statMalePctEl.textContent = totalAll > 0 ? `${Math.round((malesAll / totalAll) * 100)}%` : '0%';
+        if (statSecEl) statSecEl.textContent = activeSecCount;
+
+        // Sync Gender Segmented Button States
+        const sgfAll = document.getElementById('sgfBtnAll');
+        const sgfFemale = document.getElementById('sgfBtnFemale');
+        const sgfMale = document.getElementById('sgfBtnMale');
+        if (sgfAll && sgfFemale && sgfMale) {
+            sgfAll.className = `px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                !genderFilter ? 'bg-[#17243A] text-white shadow-xs' : 'text-[#475569] hover:text-[#17243A]'
+            }`;
+            sgfFemale.className = `px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                genderFilter === 'Female' ? 'bg-[#9B3F72] text-white shadow-xs' : 'text-[#475569] hover:text-[#17243A]'
+            }`;
+            sgfMale.className = `px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                genderFilter === 'Male' ? 'bg-[#5276A7] text-white shadow-xs' : 'text-[#475569] hover:text-[#17243A]'
+            }`;
+        }
+
+        // Render Section Pills Bar
+        const pillsContainer = document.getElementById('studentSectionPillsBar');
+        if (pillsContainer) {
+            const allActive = !state.studentSectionId;
+            const pillsHtml = [
+                `<button type="button" onclick="App.setStudentSectionFilter('')" class="px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer shrink-0 ${
+                    allActive
+                        ? 'bg-[#17243A] text-white border-[#17243A] shadow-xs'
+                        : 'bg-white text-[#475569] border-[#D8DEE8] hover:text-[#17243A] hover:bg-[#F5F7FA]'
+                }">
+                    All Sections <span class="ml-1 opacity-80 font-normal">(${totalAll})</span>
+                </button>`
+            ];
+
+            state.sections.forEach(sec => {
+                const count = state.students.filter(st => st.section_id === sec.id).length;
+                const isSecActive = String(state.studentSectionId) === String(sec.id);
+                pillsHtml.push(`
+                    <button type="button" onclick="App.setStudentSectionFilter(${sec.id})" class="px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer shrink-0 ${
+                        isSecActive
+                            ? 'bg-[#17243A] text-white border-[#17243A] shadow-xs'
+                            : 'bg-white text-[#475569] border-[#D8DEE8] hover:text-[#17243A] hover:bg-[#F5F7FA]'
+                    }">
+                        ${escapeHtml(sec.section_name)} <span class="ml-1 opacity-80 font-normal">(${count})</span>
+                    </button>
+                `);
+            });
+
+            pillsContainer.innerHTML = pillsHtml.join('');
+        }
 
         const resetBtn = document.getElementById('resetStudentFiltersBtn');
         if (resetBtn) {
             resetBtn.classList.toggle('hidden', !query && !yearFilter && !sectionFilter && !genderFilter);
         }
 
+        // Filter the student list
         const filtered = state.students.filter(st => {
             if (yearFilter && st.year_level !== yearFilter) return false;
             if (sectionFilter && String(st.section_id) !== String(sectionFilter)) return false;
@@ -1589,18 +1983,35 @@ const App = (() => {
             );
         });
 
+        // Pagination calculation
+        const totalMatching = filtered.length;
+        const pageSize = state.studentPageSize === 'ALL' ? 'ALL' : Number(state.studentPageSize) || 10;
+        const totalPages = pageSize === 'ALL' ? 1 : Math.max(1, Math.ceil(totalMatching / pageSize));
+        state.studentCurrentPage = Math.min(Math.max(1, state.studentCurrentPage), totalPages);
+        const currentPage = state.studentCurrentPage;
+
+        const pagedStudents = pageSize === 'ALL'
+            ? filtered
+            : filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
         if (filtered.length === 0) {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="8" class="py-12 px-4 text-center">
                         <p class="text-base font-bold text-[#17243A]">No student records match your view</p>
                         <p class="text-sm text-[#475569] mt-1">Enroll a student and assign them to a section, year level, and gender group.</p>
-                        <button type="button" onclick="App.openStudentModal()" class="mt-3.5 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer">
-                            + Add Student
-                        </button>
+                        <div class="mt-4 flex items-center justify-center gap-2">
+                            <button type="button" onclick="App.resetStudentFilters()" class="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8] border border-[#D8DEE8] transition cursor-pointer">
+                                Clear Filters
+                            </button>
+                            <button type="button" onclick="App.openStudentModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer can-add-student-only">
+                                + Add Student
+                            </button>
+                        </div>
                     </td>
                 </tr>
             `;
+            if (paginationContainer) paginationContainer.innerHTML = '';
             return;
         }
 
@@ -1615,108 +2026,178 @@ const App = (() => {
             Inactive: '&#10005;',
         };
 
-        const renderStudentRow = (st, idxInGender) => {
-            const subjectBadges = st.assigned_subjects.length > 0
-                ? st.assigned_subjects.map(sub => `
-                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-medium bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]" title="${escapeHtml(sub.subject_name)}">
-                        <span>${escapeHtml(sub.subject_code)}</span>
-                        <span class="text-[#5276A7] font-bold">*${formatUnits(sub.units)}</span>
-                    </span>
-                `).join('')
-                : `<button type="button" onclick="App.openAssignSubjectsModal(${st.section_id})" class="text-xs font-semibold text-[#80530F] bg-[#FFF0D1] px-2.5 py-1 rounded-lg border border-[#F0D296] hover:underline cursor-pointer">&#9888; No subjects assigned to section yet &rarr;</button>`;
+        const canAddStudent = state.currentUser?.role === 'admin' || Boolean(state.currentUser?.can_add_student);
+
+        const rowsHtml = pagedStudents.map((st, idx) => {
+            const overallIdx = pageSize === 'ALL' ? idx + 1 : (currentPage - 1) * pageSize + idx + 1;
+            const initials = (st.full_name || '')
+                .split(' ')
+                .filter(Boolean)
+                .map(n => n[0])
+                .slice(0, 2)
+                .join('')
+                .toUpperCase() || 'ST';
+
+            const normGender = normalizeGenderClient(st.gender);
+            const genderBadge = normGender === 'Female'
+                ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]"><span>&#9792;</span><span>Female</span></span>`
+                : `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]"><span>&#9794;</span><span>Male</span></span>`;
+
+            const subCount = (st.assigned_subjects || []).length;
+            const totalUnits = (st.assigned_subjects || []).reduce((sum, s) => sum + (Number(s.units) || 0), 0);
+            const curriculumBtn = subCount > 0
+                ? `<button type="button" onclick="App.openStudentSubjectsModal(${st.id})" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F5F7FA] hover:bg-[#EBF1F8] text-[#17243A] border border-[#D8DEE8] hover:border-[#5276A7] transition cursor-pointer" title="Click to view all ${subCount} subjects, teachers, and schedules">
+                    <svg class="w-3.5 h-3.5 text-[#5276A7]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                    <span>${subCount} Subjects</span>
+                    <span class="text-[#0F766E] font-bold">(${totalUnits}u)</span>
+                </button>`
+                : `<button type="button" onclick="App.openAssignSubjectsModal(${st.section_id})" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] hover:underline cursor-pointer" title="Assign subjects to section">
+                    <span>&#9888; No Subjects</span>
+                </button>`;
 
             return `
                 <tr class="hover:bg-[#F5F7FA]/80 transition">
-                    <td class="py-3 px-4 align-middle whitespace-nowrap">
-                        <span class="font-mono text-xs text-[#475569] mr-1.5">${idxInGender}.</span>
-                        <span class="font-mono text-xs sm:text-sm font-semibold text-[#17243A] bg-[#F5F7FA] border border-[#D8DEE8] px-2.5 py-1 rounded-lg">${escapeHtml(st.student_no)}</span>
+                    <td class="py-3 px-3.5 align-middle text-center font-mono text-xs text-[#475569]">
+                        ${overallIdx}
                     </td>
-                    <td class="py-3 px-4 align-middle">
-                        <p class="font-semibold text-[#17243A] text-sm">${escapeHtml(st.full_name)}</p>
+                    <td class="py-3 px-3.5 align-middle whitespace-nowrap">
+                        <span class="font-mono text-xs font-semibold text-[#17243A] bg-[#F5F7FA] border border-[#D8DEE8] px-2 py-1 rounded-lg">${escapeHtml(st.student_no)}</span>
                     </td>
-                    <td class="py-3 px-4 align-middle whitespace-nowrap">
-                        ${genderBadgeHtml(st.gender)}
-                    </td>
-                    <td class="py-3 px-4 align-middle whitespace-nowrap">
-                        <span class="px-2.5 py-1 text-xs font-semibold rounded-full border ${yearLevelBadgeClass(st.year_level)}">
-                            ${escapeHtml(st.year_level)}
-                        </span>
-                    </td>
-                    <td class="py-3 px-4 align-middle whitespace-nowrap">
-                        <button type="button" onclick="App.openSectionGrading(${st.section_id})" class="inline-flex items-center gap-1.5 font-semibold text-[#2C4870] hover:text-[#17243A] bg-[#EBF1F8] hover:bg-[#dce6f4] px-2.5 py-1 rounded-lg text-xs sm:text-sm border border-[#C5D5EA] transition cursor-pointer" title="Click to input grades for this section">
-                            <span>${escapeHtml(st.section_name)}</span>
-                        </button>
-                    </td>
-                    <td class="py-3 px-4 align-middle">
-                        <div class="flex flex-wrap gap-1.5">
-                            ${subjectBadges}
+                    <td class="py-3 px-3.5 align-middle">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-full ${normGender === 'Female' ? 'bg-[#F5DFEB] text-[#842D60] border-[#E2B8CF]' : 'bg-[#EBF1F8] text-[#2C4870] border-[#C5D5EA]'} border flex items-center justify-center font-bold text-xs shrink-0">
+                                ${initials}
+                            </div>
+                            <div>
+                                <p class="font-semibold text-[#17243A] text-sm leading-tight">${escapeHtml(st.full_name)}</p>
+                            </div>
                         </div>
                     </td>
-                    <td class="py-3 px-4 align-middle whitespace-nowrap">
-                        <span class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${statusClasses[st.status] || statusClasses.Active}">
+                    <td class="py-3 px-3.5 align-middle whitespace-nowrap">
+                        ${genderBadge}
+                    </td>
+                    <td class="py-3 px-3.5 align-middle whitespace-nowrap">
+                        <div class="flex items-center gap-1.5">
+                            <button type="button" onclick="App.openSectionGrading(${st.section_id})" class="font-bold text-[#2C4870] hover:text-[#17243A] bg-[#EBF1F8] hover:bg-[#dce6f4] px-2 py-0.5 rounded-md text-xs border border-[#C5D5EA] transition cursor-pointer" title="Click to input grades for this section">
+                                ${escapeHtml(st.section_name)}
+                            </button>
+                            <span class="px-2 py-0.5 text-[11px] font-semibold rounded-md border ${yearLevelBadgeClass(st.year_level)}">
+                                ${escapeHtml(st.year_level)}
+                            </span>
+                        </div>
+                    </td>
+                    <td class="py-3 px-3.5 align-middle whitespace-nowrap">
+                        ${curriculumBtn}
+                    </td>
+                    <td class="py-3 px-3.5 align-middle whitespace-nowrap">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded-full border ${statusClasses[st.status] || statusClasses.Active}">
                             <span>${statusIcons[st.status] || '&#10003;'}</span>
                             <span>${escapeHtml(st.status)}</span>
                         </span>
                     </td>
-                    <td class="py-3 px-4 align-middle text-right whitespace-nowrap">
+                    <td class="py-3 px-3.5 align-middle text-right whitespace-nowrap">
                         <div class="inline-flex items-center gap-1.5">
-                            <button type="button" onclick="App.openSectionGrading(${st.section_id})" class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input Grades">
+                            <button type="button" onclick="App.openSectionGrading(${st.section_id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input Grades">
                                 Grades
                             </button>
-                            <button type="button" onclick="App.openStudentModal(${st.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Student">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
-                                </svg>
-                            </button>
-                            <button type="button" onclick="App.confirmDeleteStudent(${st.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete Student">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                </svg>
-                            </button>
+                            ${canAddStudent ? `
+                                <button type="button" onclick="App.openStudentModal(${st.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Student">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                    </svg>
+                                </button>
+                                <button type="button" onclick="App.confirmDeleteStudent(${st.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Delete Student">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                    </svg>
+                                </button>
+                            ` : ''}
                         </div>
                     </td>
                 </tr>
             `;
-        };
-
-        // Group students by Section, then by Female and Male within each Section
-        const sectionsOrder = state.sections.filter(sec => filtered.some(st => st.section_id === sec.id));
-        const htmlChunks = [];
-
-        sectionsOrder.forEach(sec => {
-            const secStudents = filtered.filter(st => st.section_id === sec.id);
-            const femaleList = secStudents.filter(st => normalizeGenderClient(st.gender) === 'Female');
-            const maleList = secStudents.filter(st => normalizeGenderClient(st.gender) === 'Male');
-
-            htmlChunks.push(`
-                <tr class="bg-[#17243A] text-white">
-                    <td colspan="8" class="py-2.5 px-4">
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                            <div class="flex items-center gap-2">
-                                <span class="font-display font-bold text-sm">${escapeHtml(sec.section_name)}</span>
-                                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-white/15 text-slate-100">${escapeHtml(sec.year_level)}</span>
-                                <span class="text-xs text-slate-300">&bull; ${secStudents.length} Student${secStudents.length === 1 ? '' : 's'} (&#9792; ${femaleList.length} Female, &#9794; ${maleList.length} Male)</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <button type="button" onclick="App.openStudentModal(null, ${sec.id}, 'single')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/15 hover:bg-white/25 text-white transition cursor-pointer">+ Add Student</button>
-                                <button type="button" onclick="App.openSectionGrading(${sec.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] hover:bg-white transition cursor-pointer">Open Grade Sheet &rarr;</button>
-                            </div>
-                        </div>
-                    </td>
-                </tr>
-            `);
-
-            if (femaleList.length > 0) {
-                htmlChunks.push(genderSectionHeaderRowHtml('Female', femaleList.length, 8, `${sec.section_name} (${sec.year_level})`));
-                femaleList.forEach((st, idx) => htmlChunks.push(renderStudentRow(st, idx + 1)));
-            }
-            if (maleList.length > 0) {
-                htmlChunks.push(genderSectionHeaderRowHtml('Male', maleList.length, 8, `${sec.section_name} (${sec.year_level})`));
-                maleList.forEach((st, idx) => htmlChunks.push(renderStudentRow(st, idx + 1)));
-            }
         });
 
-        tbody.innerHTML = htmlChunks.join('');
+        tbody.innerHTML = rowsHtml.join('');
+
+        // Render Pagination & Entries Controls
+        if (paginationContainer) {
+            const startEntryNum = totalMatching === 0 ? 0 : (pageSize === 'ALL' ? 1 : (currentPage - 1) * pageSize + 1);
+            const endEntryNum = pageSize === 'ALL' ? totalMatching : Math.min(currentPage * pageSize, totalMatching);
+
+            const pageSizeOptions = [10, 25, 50, 'ALL'].map(opt => {
+                const isSel = (opt === 'ALL' && state.studentPageSize === 'ALL') || Number(opt) === Number(state.studentPageSize);
+                return `<option value="${opt}" ${isSel ? 'selected' : ''}>${opt === 'ALL' ? 'All' : opt}</option>`;
+            }).join('');
+
+            const pageSizeQuickPills = [10, 25, 50, 'ALL'].map(opt => {
+                const isCurr = (opt === 'ALL' && state.studentPageSize === 'ALL') || Number(opt) === Number(state.studentPageSize);
+                return `
+                    <button type="button" onclick="App.setStudentPageSize('${opt}')"
+                        class="px-2 py-0.5 rounded-md text-xs font-bold border transition cursor-pointer ${
+                            isCurr
+                                ? 'bg-[#17243A] text-white border-[#17243A]'
+                                : 'bg-white text-[#475569] border-[#D8DEE8] hover:text-[#17243A] hover:bg-[#F5F7FA]'
+                        }">
+                        ${opt === 'ALL' ? 'All' : opt}
+                    </button>
+                `;
+            }).join('');
+
+            const pageButtonsHtml = [];
+            const maxPageButtons = 5;
+            let startP = Math.max(1, currentPage - 2);
+            let endP = Math.min(totalPages, startP + maxPageButtons - 1);
+            if (endP - startP + 1 < maxPageButtons) {
+                startP = Math.max(1, endP - maxPageButtons + 1);
+            }
+
+            for (let p = startP; p <= endP; p++) {
+                const isActPage = p === currentPage;
+                pageButtonsHtml.push(`
+                    <button type="button" onclick="App.setStudentPage(${p})"
+                        class="w-7 h-7 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            isActPage
+                                ? 'bg-[#17243A] text-white border-[#17243A]'
+                                : 'bg-white text-[#17243A] border-[#D8DEE8] hover:bg-[#F5F7FA]'
+                        }">
+                        ${p}
+                    </button>
+                `);
+            }
+
+            paginationContainer.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <span>Showing <strong class="text-[#17243A]">${startEntryNum}</strong> to <strong class="text-[#17243A]">${endEntryNum}</strong> of <strong class="text-[#17243A]">${totalMatching}</strong> students</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-1.5 bg-white px-2 py-1 rounded-xl border border-[#D8DEE8]">
+                        <span class="text-xs font-medium text-[#475569]">Show:</span>
+                        <select onchange="App.setStudentPageSize(this.value)" class="text-xs font-bold text-[#17243A] bg-transparent outline-none cursor-pointer">
+                            ${pageSizeOptions}
+                        </select>
+                    </div>
+                    <div class="hidden sm:inline-flex items-center gap-1">
+                        ${pageSizeQuickPills}
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <button type="button"
+                        onclick="App.setStudentPage(${currentPage - 1})"
+                        ${currentPage <= 1 ? 'disabled' : ''}
+                        class="px-2.5 py-1 rounded-lg text-xs font-semibold border border-[#D8DEE8] bg-white text-[#17243A] hover:bg-[#EBF1F8] disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer">
+                        Prev
+                    </button>
+                    ${pageButtonsHtml.join('')}
+                    <button type="button"
+                        onclick="App.setStudentPage(${currentPage + 1})"
+                        ${currentPage >= totalPages ? 'disabled' : ''}
+                        class="px-2.5 py-1 rounded-lg text-xs font-semibold border border-[#D8DEE8] bg-white text-[#17243A] hover:bg-[#EBF1F8] disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer">
+                        Next
+                    </button>
+                </div>
+            `;
+        }
     }
 
     // ==================== VIEW 5: TEACHER GRADE INPUT PER SECTION ====================
@@ -2124,6 +2605,9 @@ const App = (() => {
         } else {
             renderMasterSectionGradeSheet(container, activeSection, filteredStandings, subjectLocksMap, !isAdmin);
         }
+
+        updateMissingGradesCounter();
+        resetActiveStudentHUD();
     }
 
     function renderSingleSubjectGradeSheet(container, section, standings, subjectId, isLocked = false) {
@@ -2185,8 +2669,13 @@ const App = (() => {
                                 data-row-idx="${rIdx}"
                                 data-col-idx="0"
                                 data-student-id="${st.id}"
+                                data-student-name="${escapeHtml(st.full_name)}"
+                                data-student-no="${escapeHtml(st.student_no)}"
+                                data-student-gender="${escapeHtml(st.gender)}"
                                 data-section-id="${section.id}"
                                 data-subject-id="${subjectId}"
+                                data-subject-code="${escapeHtml(sub.subject_code)}"
+                                data-subject-name="${escapeHtml(sub.subject_name)}"
                                 data-quarter="${state.gradingQuarter}"
                                 data-units="${sub.units}"
                                 value="${currentVal !== '' ? Number(currentVal) : ''}"
@@ -2272,7 +2761,7 @@ const App = (() => {
         const subjectHeadersHtml = subjects.map((sub, idx) => {
             const col = excelColLetter(idx);
             return `
-                <th scope="col" class="py-2.5 px-2 text-center min-w-[96px] sm:min-w-[108px] border-l border-[#D8DEE8]">
+                <th scope="col" id="subHeader_${idx}" class="py-2.5 px-2 text-center min-w-[96px] sm:min-w-[108px] border-l border-[#D8DEE8] transition-colors">
                     <button type="button" onclick="App.setGradingSubjectTab('${sub.subject_id}')" class="w-full text-center group cursor-pointer" title="Click to focus only on ${escapeHtml(sub.subject_code)} (${escapeHtml(sub.subject_name)})">
                         <div class="text-xs font-mono font-bold text-[#5276A7] group-hover:underline">${col}21*${formatUnits(sub.units)}</div>
                         <div class="text-xs font-bold text-[#17243A] truncate">${escapeHtml(sub.subject_code)}</div>
@@ -2316,8 +2805,13 @@ const App = (() => {
                             data-row-idx="${rIdx}"
                             data-col-idx="${cIdx}"
                             data-student-id="${st.id}"
+                            data-student-name="${escapeHtml(st.full_name)}"
+                            data-student-no="${escapeHtml(st.student_no)}"
+                            data-student-gender="${escapeHtml(st.gender)}"
                             data-section-id="${section.id}"
                             data-subject-id="${sr.subject_id}"
+                            data-subject-code="${escapeHtml(subjects[cIdx]?.subject_code || '')}"
+                            data-subject-name="${escapeHtml(subjects[cIdx]?.subject_name || '')}"
                             data-quarter="${state.gradingQuarter}"
                             data-units="${sr.units}"
                             value="${val !== '' ? Number(val) : ''}"
@@ -2419,19 +2913,385 @@ const App = (() => {
         `;
     }
 
+    function updateMissingGradesCounter() {
+        const inputs = Array.from(document.querySelectorAll('#gradingSheetContainer input[data-grade-input="true"]'));
+        const emptyCount = inputs.filter(inp => inp.value.trim() === '').length;
+        const totalCount = inputs.length;
+
+        const countBadge = document.getElementById('gradingMissingCountBadge');
+        const pillBadge = document.getElementById('activeGuideMissingPill');
+
+        if (countBadge) {
+            countBadge.textContent = emptyCount;
+            if (emptyCount === 0 && totalCount > 0) {
+                countBadge.className = 'px-1.5 py-0.2 rounded-full text-[10px] bg-[#0F766E] text-white font-mono';
+                countBadge.innerHTML = '&#10003; 0';
+            } else {
+                countBadge.className = 'px-1.5 py-0.2 rounded-full text-[10px] bg-black/25 text-white font-mono';
+            }
+        }
+        if (pillBadge) {
+            pillBadge.textContent = emptyCount;
+        }
+        return emptyCount;
+    }
+
+    function jumpToNextEmptyGradeCell() {
+        const inputs = Array.from(document.querySelectorAll('#gradingSheetContainer input[data-grade-input="true"]:not([disabled])'));
+        if (inputs.length === 0) {
+            showToast('No editable grade cells available.', 'info');
+            return;
+        }
+
+        const activeEl = document.activeElement;
+        const activeIdx = inputs.indexOf(activeEl);
+
+        let nextEmpty = null;
+        for (let i = activeIdx + 1; i < inputs.length; i++) {
+            if (inputs[i].value.trim() === '') {
+                nextEmpty = inputs[i];
+                break;
+            }
+        }
+        if (!nextEmpty) {
+            for (let i = 0; i <= activeIdx; i++) {
+                if (inputs[i].value.trim() === '') {
+                    nextEmpty = inputs[i];
+                    break;
+                }
+            }
+        }
+
+        if (nextEmpty) {
+            nextEmpty.focus();
+            setTimeout(() => {
+                try {
+                    nextEmpty.select();
+                    nextEmpty.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } catch (e) {}
+            }, 10);
+            const stName = nextEmpty.getAttribute('data-student-name') || 'Student';
+            showToast(`Jumped to missing grade for ${stName}`, 'info');
+        } else {
+            showToast('All visible grade cells are complete! 🎉', 'success');
+        }
+    }
+
+    async function applyPresetToActiveCell(gradeVal) {
+        let activeEl = document.activeElement;
+        if (!activeEl || !activeEl.matches('#gradingSheetContainer input[data-grade-input="true"]:not([disabled])')) {
+            activeEl = document.querySelector('#gradingSheetContainer input[data-grade-input="true"]:not([disabled])');
+        }
+        if (!activeEl) {
+            showToast('No active editable grade cell to fill.', 'info');
+            return;
+        }
+
+        activeEl.value = gradeVal;
+        const rIdx = Number(activeEl.getAttribute('data-row-idx'));
+        const cIdx = Number(activeEl.getAttribute('data-col-idx'));
+        const isMaster = state.gradingSubjectId === 'ALL';
+
+        if (isMaster) {
+            const stId = Number(activeEl.getAttribute('data-student-id'));
+            const secId = Number(activeEl.getAttribute('data-section-id'));
+            onMasterSheetCellInput(stId, secId);
+        } else {
+            onLiveGradeCellInput(activeEl);
+        }
+
+        await onGradeCellBlur(activeEl);
+
+        // Advance focus down to next student in column
+        const next = document.querySelector(
+            `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx + 1}"][data-col-idx="${cIdx}"]`
+        );
+        if (next) {
+            next.focus();
+            setTimeout(() => {
+                try { next.select(); } catch(e){}
+            }, 10);
+        }
+    }
+
+    function toggleGradingFormulaView() {
+        const accordion = document.getElementById('gradingFormulaAccordion');
+        const toggleText = document.getElementById('gradingFormulaToggleText');
+        if (!accordion) return;
+        const isHidden = accordion.classList.contains('hidden');
+        if (isHidden) {
+            accordion.classList.remove('hidden');
+            if (toggleText) toggleText.textContent = 'Hide fx';
+        } else {
+            accordion.classList.add('hidden');
+            if (toggleText) toggleText.textContent = 'Formula';
+        }
+    }
+
+    function resetActiveStudentHUD() {
+        const avatarEl = document.getElementById('activeGuideAvatar');
+        const nameEl = document.getElementById('activeGuideStudentName');
+        const metaEl = document.getElementById('activeGuideStudentMeta');
+        const subBadgeEl = document.getElementById('activeGuideSubjectBadge');
+        const gradeStatusEl = document.getElementById('activeGuideGradeStatus');
+        const standingEl = document.getElementById('activeGuideStanding');
+
+        if (avatarEl) {
+            avatarEl.innerHTML = `<svg class="w-5 h-5 text-[#B8CCE6]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>`;
+        }
+        if (nameEl) nameEl.textContent = 'Fast Grade Entry Assistant';
+        if (metaEl) metaEl.textContent = 'Click any cell or press Enter to begin';
+        if (subBadgeEl) subBadgeEl.classList.add('hidden');
+        if (gradeStatusEl) {
+            gradeStatusEl.innerHTML = `<span>⌨️ Navigation: <kbd class="px-1.5 py-0.5 rounded bg-black/30 font-mono text-white text-[11px]">Enter</kbd> Down &bull; <kbd class="px-1.5 py-0.5 rounded bg-black/30 font-mono text-white text-[11px]">Tab</kbd> Next Subj</span>`;
+        }
+        if (standingEl) standingEl.textContent = 'Weighted averages calculate live';
+    }
+
+    function updateActiveStudentHUD(inputEl) {
+        if (!inputEl) return;
+        const stId = Number(inputEl.getAttribute('data-student-id'));
+        const secId = Number(inputEl.getAttribute('data-section-id'));
+        const stName = inputEl.getAttribute('data-student-name') || '';
+        const stNo = inputEl.getAttribute('data-student-no') || '';
+        const stGender = inputEl.getAttribute('data-student-gender') || '';
+        const subCode = inputEl.getAttribute('data-subject-code') || '';
+        const subName = inputEl.getAttribute('data-subject-name') || '';
+        const units = inputEl.getAttribute('data-units') || '';
+
+        // Avatar Initials
+        const avatarEl = document.getElementById('activeGuideAvatar');
+        if (avatarEl) {
+            const initials = stName.split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase() || 'ST';
+            avatarEl.textContent = initials;
+        }
+
+        // Student Name
+        const nameEl = document.getElementById('activeGuideStudentName');
+        if (nameEl) {
+            nameEl.textContent = stName || 'Active Student';
+        }
+
+        // Student Meta
+        const metaEl = document.getElementById('activeGuideStudentMeta');
+        if (metaEl) {
+            metaEl.innerHTML = `${escapeHtml(stNo)} &bull; ${genderBadgeHtml(stGender, true)}`;
+        }
+
+        // Subject Badge
+        const subBadgeEl = document.getElementById('activeGuideSubjectBadge');
+        if (subBadgeEl) {
+            subBadgeEl.classList.remove('hidden');
+            subBadgeEl.textContent = `${subCode} (${formatUnits(units)}u)`;
+            subBadgeEl.title = subName;
+        }
+
+        // Grade status
+        const val = inputEl.value.trim();
+        const gradeStatusEl = document.getElementById('activeGuideGradeStatus');
+        if (gradeStatusEl) {
+            if (val === '' || isNaN(Number(val))) {
+                gradeStatusEl.innerHTML = `<span class="inline-flex items-center gap-1 text-[#FFF0D1] font-bold"><span class="animate-pulse">⚡</span><span>Awaiting Grade (50-100)</span></span>`;
+            } else {
+                const g = Number(val);
+                if (g < GRADING_POLICY.passingGrade) {
+                    gradeStatusEl.innerHTML = `<span class="inline-flex items-center gap-1 text-[#F5DFEB] font-bold"><span>&#10005;</span><span>Failing Grade (${g})</span></span>`;
+                } else if (g < GRADING_POLICY.honorSubjectFloor) {
+                    gradeStatusEl.innerHTML = `<span class="inline-flex items-center gap-1 text-[#FFF0D1] font-bold"><span>&#9888;</span><span>Passed &bull; Below 85 Floor (${g})</span></span>`;
+                } else if (meetsHonorAveragePolicy(g)) {
+                    gradeStatusEl.innerHTML = `<span class="inline-flex items-center gap-1 text-[#D5F0EA] font-bold"><span>★</span><span>Passed &bull; Honor Tier (${g})</span></span>`;
+                } else {
+                    gradeStatusEl.innerHTML = `<span class="inline-flex items-center gap-1 text-[#D5F0EA] font-bold"><span>&#10003;</span><span>Passed (${g})</span></span>`;
+                }
+            }
+        }
+
+        // Standing & Average
+        const standingEl = document.getElementById('activeGuideStanding');
+        if (standingEl) {
+            const standings = computeSectionStandings(secId, state.gradingQuarter);
+            const row = standings?.rows.find(r => r.student.id === stId);
+            if (row && row.weightedAverage !== null) {
+                const avgText = row.weightedAverage.toFixed(2);
+                const honorLabel = row.isQualified ? '★ Qualified for Honors' : (row.isFailingOverall ? 'Failing' : 'Passed');
+                standingEl.innerHTML = `Qtr Avg: <strong class="text-white">${avgText}</strong> (${honorLabel})`;
+            } else {
+                standingEl.textContent = 'Auto-saves on Enter or Tab';
+            }
+        }
+
+        updateActiveStudentFormulaBar(stId, secId);
+        updateMissingGradesCounter();
+    }
+
     function onGradeCellKeyDown(event, inputEl) {
         const key = event.key;
         const rIdx = Number(inputEl.getAttribute('data-row-idx'));
         const cIdx = Number(inputEl.getAttribute('data-col-idx'));
+        const isMaster = state.gradingSubjectId === 'ALL';
 
-        if (key === 'Enter' || key === 'ArrowDown') {
+        // Shortcut: Alt+N or Ctrl+Enter jumps to next missing grade
+        if ((event.altKey && (key === 'n' || key === 'N')) || (event.ctrlKey && key === 'Enter')) {
+            event.preventDefault();
+            jumpToNextEmptyGradeCell();
+            return;
+        }
+
+        // Stepper: + or = increments grade by 1; - decrements by 1
+        if (key === '+' || key === '=') {
+            event.preventDefault();
+            let cur = Number(inputEl.value) || 75;
+            cur = Math.min(100, Math.round(cur + 1));
+            inputEl.value = cur;
+            if (isMaster) {
+                onMasterSheetCellInput(Number(inputEl.getAttribute('data-student-id')), Number(inputEl.getAttribute('data-section-id')));
+            } else {
+                onLiveGradeCellInput(inputEl);
+            }
+            updateActiveStudentHUD(inputEl);
+            return;
+        }
+        if (key === '-' && inputEl.value.trim() !== '') {
+            event.preventDefault();
+            let cur = Number(inputEl.value) || 75;
+            cur = Math.max(50, Math.round(cur - 1));
+            inputEl.value = cur;
+            if (isMaster) {
+                onMasterSheetCellInput(Number(inputEl.getAttribute('data-student-id')), Number(inputEl.getAttribute('data-section-id')));
+            } else {
+                onLiveGradeCellInput(inputEl);
+            }
+            updateActiveStudentHUD(inputEl);
+            return;
+        }
+
+        // Enter: Move Down vertically (or wrap to next column top if at bottom of column in Master Sheet)
+        if (key === 'Enter') {
+            event.preventDefault();
+            if (event.shiftKey) {
+                // Move Up
+                const prev = document.querySelector(
+                    `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx - 1}"][data-col-idx="${cIdx}"]`
+                );
+                if (prev) {
+                    prev.focus();
+                    setTimeout(() => {
+                        try { prev.select(); } catch(e){}
+                    }, 10);
+                }
+            } else {
+                // Move Down
+                const next = document.querySelector(
+                    `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx + 1}"][data-col-idx="${cIdx}"]`
+                );
+                if (next) {
+                    next.focus();
+                    setTimeout(() => {
+                        try { next.select(); } catch(e){}
+                    }, 10);
+                } else if (isMaster) {
+                    // Wrap to row 0 of next column
+                    const nextColTop = document.querySelector(
+                        `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="0"][data-col-idx="${cIdx + 1}"]`
+                    );
+                    if (nextColTop) {
+                        nextColTop.focus();
+                        setTimeout(() => {
+                            try { nextColTop.select(); } catch(e){}
+                        }, 10);
+                    }
+                }
+            }
+            return;
+        }
+
+        // Tab: Move Horizontally across subjects (or wrap across rows)
+        if (key === 'Tab') {
+            event.preventDefault();
+            if (event.shiftKey) {
+                // Move Left
+                if (isMaster) {
+                    const left = document.querySelector(
+                        `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx}"][data-col-idx="${cIdx - 1}"]`
+                    );
+                    if (left) {
+                        left.focus();
+                        setTimeout(() => {
+                            try { left.select(); } catch(e){}
+                        }, 10);
+                    } else {
+                        // Wrap to previous row last column
+                        const prevRowInputs = Array.from(document.querySelectorAll(
+                            `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx - 1}"]`
+                        ));
+                        if (prevRowInputs.length > 0) {
+                            const lastOfPrev = prevRowInputs[prevRowInputs.length - 1];
+                            lastOfPrev.focus();
+                            setTimeout(() => {
+                                try { lastOfPrev.select(); } catch(e){}
+                            }, 10);
+                        }
+                    }
+                } else {
+                    const prev = document.querySelector(
+                        `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx - 1}"][data-col-idx="${cIdx}"]`
+                    );
+                    if (prev) {
+                        prev.focus();
+                        setTimeout(() => {
+                            try { prev.select(); } catch(e){}
+                        }, 10);
+                    }
+                }
+            } else {
+                // Move Right
+                if (isMaster) {
+                    const right = document.querySelector(
+                        `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx}"][data-col-idx="${cIdx + 1}"]`
+                    );
+                    if (right) {
+                        right.focus();
+                        setTimeout(() => {
+                            try { right.select(); } catch(e){}
+                        }, 10);
+                    } else {
+                        // Wrap to next row column 0
+                        const nextRowFirst = document.querySelector(
+                            `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx + 1}"][data-col-idx="0"]`
+                        );
+                        if (nextRowFirst) {
+                            nextRowFirst.focus();
+                            setTimeout(() => {
+                                try { nextRowFirst.select(); } catch(e){}
+                            }, 10);
+                        }
+                    }
+                } else {
+                    const next = document.querySelector(
+                        `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx + 1}"][data-col-idx="${cIdx}"]`
+                    );
+                    if (next) {
+                        next.focus();
+                        setTimeout(() => {
+                            try { next.select(); } catch(e){}
+                        }, 10);
+                    }
+                }
+            }
+            return;
+        }
+
+        // Arrow navigation
+        if (key === 'ArrowDown') {
             event.preventDefault();
             const next = document.querySelector(
                 `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx + 1}"][data-col-idx="${cIdx}"]`
             );
             if (next) {
                 next.focus();
-                next.select();
+                setTimeout(() => {
+                    try { next.select(); } catch(e){}
+                }, 10);
             }
         } else if (key === 'ArrowUp') {
             event.preventDefault();
@@ -2440,34 +3300,65 @@ const App = (() => {
             );
             if (prev) {
                 prev.focus();
-                prev.select();
+                setTimeout(() => {
+                    try { prev.select(); } catch(e){}
+                }, 10);
             }
-        } else if (key === 'ArrowRight' && state.gradingSubjectId === 'ALL') {
-            const right = document.querySelector(
-                `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx}"][data-col-idx="${cIdx + 1}"]`
-            );
-            if (right) {
-                event.preventDefault();
-                right.focus();
-                right.select();
+        } else if (key === 'ArrowRight' && isMaster) {
+            const len = inputEl.value.length;
+            if (inputEl.selectionStart === len || inputEl.selectionEnd - inputEl.selectionStart === len) {
+                const right = document.querySelector(
+                    `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx}"][data-col-idx="${cIdx + 1}"]`
+                );
+                if (right) {
+                    event.preventDefault();
+                    right.focus();
+                    setTimeout(() => {
+                        try { right.select(); } catch(e){}
+                    }, 10);
+                }
             }
-        } else if (key === 'ArrowLeft' && state.gradingSubjectId === 'ALL') {
-            const left = document.querySelector(
-                `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx}"][data-col-idx="${cIdx - 1}"]`
-            );
-            if (left) {
-                event.preventDefault();
-                left.focus();
-                left.select();
+        } else if (key === 'ArrowLeft' && isMaster) {
+            const len = inputEl.value.length;
+            if (inputEl.selectionStart === 0 || inputEl.selectionEnd - inputEl.selectionStart === len) {
+                const left = document.querySelector(
+                    `#gradingSheetContainer input[data-grade-input="true"][data-row-idx="${rIdx}"][data-col-idx="${cIdx - 1}"]`
+                );
+                if (left) {
+                    event.preventDefault();
+                    left.focus();
+                    setTimeout(() => {
+                        try { left.select(); } catch(e){}
+                    }, 10);
+                }
             }
         }
     }
 
     function onGradeCellFocus(inputEl) {
-        inputEl.select();
-        const stId = Number(inputEl.getAttribute('data-student-id'));
-        const secId = Number(inputEl.getAttribute('data-section-id'));
-        updateActiveStudentFormulaBar(stId, secId);
+        // Immediate selection across all browsers
+        setTimeout(() => {
+            try { inputEl.select(); } catch(e){}
+        }, 0);
+
+        // Highlight active student row
+        document.querySelectorAll('#gradingSheetContainer tr.active-grade-row').forEach(tr => {
+            tr.classList.remove('active-grade-row');
+        });
+        const tr = inputEl.closest('tr');
+        if (tr) tr.classList.add('active-grade-row');
+
+        // In Master Sheet mode, highlight corresponding column header
+        document.querySelectorAll('#gradingSheetContainer th.active-grade-col-header').forEach(th => {
+            th.classList.remove('active-grade-col-header');
+        });
+        const cIdx = inputEl.getAttribute('data-col-idx');
+        if (cIdx !== null && cIdx !== undefined) {
+            const th = document.getElementById(`subHeader_${cIdx}`);
+            if (th) th.classList.add('active-grade-col-header');
+        }
+
+        updateActiveStudentHUD(inputEl);
     }
 
     function updateActiveStudentFormulaBar(studentId, sectionId) {
@@ -2554,6 +3445,11 @@ const App = (() => {
             state.students = res.students || state.students;
             state.stats = res.stats || state.stats;
             updateSaveStatusBadge('saved');
+
+            // Visual micro-flash indicating success
+            inputEl.classList.add('cell-saved-flash');
+            setTimeout(() => inputEl.classList.remove('cell-saved-flash'), 500);
+            updateMissingGradesCounter();
         } catch (err) {
             updateSaveStatusBadge('dirty');
             showToast(err.message, 'error');
@@ -2596,10 +3492,13 @@ const App = (() => {
         inputEl.classList.remove(
             'border-[#D8DEE8]', 'bg-white', 'text-[#17243A]',
             'border-[#B7791F]', 'bg-[#FFF0D1]/60', 'text-[#80530F]',
-            'border-[#9B3F72]', 'bg-[#F5DFEB]/60', 'text-[#842D60]'
+            'border-[#9B3F72]', 'bg-[#F5DFEB]/60', 'text-[#842D60]',
+            'border-[#99D8CC]', 'bg-[#D5F0EA]/60', 'text-[#0F766E]',
+            'border-[#C5D5EA]', 'bg-[#EBF1F8]/60', 'text-[#2C4870]',
+            'font-bold', 'font-semibold'
         );
         const evalInfo = evaluateGradePolicy(num);
-        evalInfo.inputClass.split(' ').forEach(cls => inputEl.classList.add(cls));
+        evalInfo.inputClass.split(' ').filter(Boolean).forEach(cls => inputEl.classList.add(cls));
     }
 
     function onLiveGradeCellInput(inputEl) {
@@ -2620,7 +3519,7 @@ const App = (() => {
         if (remarkCell) {
             remarkCell.innerHTML = renderSingleGradeBadge(num);
         }
-        updateActiveStudentFormulaBar(stId, secId);
+        updateActiveStudentHUD(inputEl);
     }
 
     function onMasterSheetCellInput(studentId, sectionId) {
@@ -2702,7 +3601,13 @@ const App = (() => {
             }
         }
 
-        updateActiveStudentFormulaBar(studentId, sectionId);
+        const focusedInput = document.activeElement?.matches?.('input[data-grade-input="true"]') ? document.activeElement : null;
+        if (focusedInput && Number(focusedInput.getAttribute('data-student-id')) === studentId) {
+            updateActiveStudentHUD(focusedInput);
+        } else {
+            updateActiveStudentFormulaBar(studentId, sectionId);
+            updateMissingGradesCounter();
+        }
     }
 
     async function saveCurrentGradesSheet() {
@@ -3226,10 +4131,12 @@ const App = (() => {
     }
 
     function filterStudentsBySection(sectionId) {
+        state.studentSectionId = sectionId ? String(sectionId) : '';
+        state.studentCurrentPage = 1;
         switchView('students', false);
         const sectionSelect = document.getElementById('studentSectionFilter');
         if (sectionSelect) {
-            sectionSelect.value = String(sectionId);
+            sectionSelect.value = state.studentSectionId;
         }
         updateBrowserUrl({
             page: 'students',
@@ -3239,11 +4146,17 @@ const App = (() => {
     }
 
     function resetStudentFilters() {
-        document.getElementById('studentSearchInput').value = '';
-        document.getElementById('studentYearFilter').value = '';
-        document.getElementById('studentSectionFilter').value = '';
+        const sInput = document.getElementById('studentSearchInput');
+        if (sInput) sInput.value = '';
+        const yFilter = document.getElementById('studentYearFilter');
+        if (yFilter) yFilter.value = '';
+        const secFilter = document.getElementById('studentSectionFilter');
+        if (secFilter) secFilter.value = '';
         const gf = document.getElementById('studentGenderFilter');
         if (gf) gf.value = '';
+        state.studentSectionId = '';
+        state.studentGenderFilter = '';
+        state.studentCurrentPage = 1;
         updateBrowserUrl({ page: 'students' }, true);
         renderStudentsView();
     }
@@ -3772,119 +4685,356 @@ const App = (() => {
         }
     }
 
-    // ==================== ASSIGN SUBJECT TO TEACHER CONTROLLER ====================
+    // ==================== ASSIGN SUBJECTS & SECTIONS TO TEACHER CONTROLLER ====================
     let returnToTeacherModalAfterCreate = false;
+    let astCheckedSections = new Set();
+    let astCheckedSubjects = new Set();
 
-    function openAssignSubjectTeacherModal(teacherId = null, sectionId = null, subjectId = null) {
+    function openAssignSubjectTeacherModal(teacherId = null, sectionIds = null, subjectIds = null) {
         const modal = document.getElementById('assignSubjectTeacherModal');
         if (!modal) return;
 
         const teacherSelect = document.getElementById('astTeacherSelect');
-        const sectionSelect = document.getElementById('astSectionSelect');
         const schedInput = document.getElementById('astScheduleInput');
+        const secSearch = document.getElementById('astSectionSearchInput');
+        const subSearch = document.getElementById('astSubjectSearchInput');
 
-        // Populate Teachers
+        if (secSearch) secSearch.value = '';
+        if (subSearch) subSearch.value = '';
+        if (schedInput) schedInput.value = '';
+
+        // Reset and pre-fill checked sections
+        astCheckedSections = new Set();
+        if (Array.isArray(sectionIds)) {
+            sectionIds.forEach(id => { if (id) astCheckedSections.add(Number(id)); });
+        } else if (sectionIds !== null && sectionIds !== undefined && Number(sectionIds) > 0) {
+            astCheckedSections.add(Number(sectionIds));
+        }
+
+        // Reset and pre-fill checked subjects
+        astCheckedSubjects = new Set();
+        if (Array.isArray(subjectIds)) {
+            subjectIds.forEach(id => { if (id) astCheckedSubjects.add(Number(id)); });
+        } else if (subjectIds !== null && subjectIds !== undefined && Number(subjectIds) > 0) {
+            astCheckedSubjects.add(Number(subjectIds));
+        }
+
+        // Populate Teachers dropdown
         const teachersList = (state.teachers || []).filter(t => t.role === 'teacher');
-        teacherSelect.innerHTML = `<option value="">-- Select Teacher --</option>` +
-            teachersList.map(t => `<option value="${t.id}">${escapeHtml(t.full_name)} (@${escapeHtml(t.username)})</option>`).join('');
+        teacherSelect.innerHTML = `<option value="">-- Select Teacher Account --</option>` +
+            teachersList.map(t => {
+                const loadCount = t.load_count !== undefined ? t.load_count : 0;
+                return `<option value="${t.id}">${escapeHtml(t.full_name)} (@${escapeHtml(t.username)}) — ${loadCount} current load${loadCount === 1 ? '' : 's'}</option>`;
+            }).join('');
 
         if (teacherId) {
             teacherSelect.value = String(teacherId);
+        } else {
+            teacherSelect.value = '';
         }
 
-        // Populate Sections
-        sectionSelect.innerHTML = `<option value="">-- Select Section --</option>` +
-            state.sections.map(s => `<option value="${s.id}">${escapeHtml(s.section_name)} (${escapeHtml(s.year_level)})</option>`).join('');
-
-        const activeSecId = sectionId || (state.sections[0] ? state.sections[0].id : null);
-        if (activeSecId) {
-            sectionSelect.value = String(activeSecId);
-        }
-
-        // Populate Subjects based on section
-        populateAstSubjectsDropdown(activeSecId, subjectId);
-
-        // Pre-fill schedule if existing
-        if (schedInput) {
-            schedInput.value = '';
-            if (activeSecId && subjectId) {
-                const sec = state.sections.find(s => s.id === Number(activeSecId));
-                const sub = sec?.assigned_subjects?.find(s => Number(s.subject_id) === Number(subjectId));
-                if (sub && sub.schedule) {
-                    schedInput.value = sub.schedule;
-                }
-            }
-        }
+        onAstTeacherChange(teacherSelect.value);
+        renderAstSectionsList();
+        renderAstSubjectsList();
+        updateAstSummary();
 
         openModal('assignSubjectTeacherModal');
     }
 
-    function onAstSectionChange(secId) {
-        populateAstSubjectsDropdown(secId, null);
+    function onAstTeacherChange(teacherId) {
+        const infoPill = document.getElementById('astTeacherInfoPill');
+        if (!infoPill) return;
+
+        if (!teacherId) {
+            infoPill.innerHTML = `<span class="text-[#80530F]">Please select a teacher to assign teaching loads to.</span>`;
+            updateAstSummary();
+            return;
+        }
+
+        const t = (state.teachers || []).find(x => String(x.id) === String(teacherId));
+        if (t) {
+            const loadCount = t.load_count !== undefined ? t.load_count : 0;
+            infoPill.innerHTML = `
+                <span class="inline-flex items-center gap-1.5 text-[#0F766E] font-semibold">
+                    <span>✓ Selected Teacher:</span>
+                    <strong class="text-[#17243A]">${escapeHtml(t.full_name)}</strong>
+                    <span class="text-[#475569]">(@${escapeHtml(t.username)})</span>
+                    <span>&bull;</span>
+                    <span>${loadCount} current active load${loadCount === 1 ? '' : 's'}</span>
+                </span>
+            `;
+        } else {
+            infoPill.textContent = '';
+        }
+
+        updateAstSummary();
     }
 
-    function populateAstSubjectsDropdown(secId, selectedSubId = null) {
-        const subjectSelect = document.getElementById('astSubjectSelect');
-        if (!subjectSelect) return;
-
-        const sec = state.sections.find(s => s.id === Number(secId));
-        const optionsHtml = [`<option value="">-- Select Subject --</option>`];
-
-        // First list subjects already in this section
-        if (sec && sec.assigned_subjects && sec.assigned_subjects.length > 0) {
-            optionsHtml.push(`<optgroup label="Currently in ${escapeHtml(sec.section_name)}">`);
-            sec.assigned_subjects.forEach(asub => {
-                const isSelected = selectedSubId && Number(asub.subject_id) === Number(selectedSubId);
-                const currentTeacher = asub.instructor ? ` (Current Teacher: ${asub.instructor})` : ' (No teacher assigned)';
-                optionsHtml.push(`<option value="${asub.subject_id}" ${isSelected ? 'selected' : ''}>${escapeHtml(asub.subject_code)} — ${escapeHtml(asub.subject_name)}${currentTeacher}</option>`);
-            });
-            optionsHtml.push(`</optgroup>`);
-        }
-
-        // Other subjects in catalog
-        const assignedSubIds = new Set((sec?.assigned_subjects || []).map(s => Number(s.subject_id)));
-        const otherSubs = state.subjects.filter(s => !assignedSubIds.has(Number(s.id)));
-        if (otherSubs.length > 0) {
-            optionsHtml.push(`<optgroup label="Add Other Subject from Catalog">`);
-            otherSubs.forEach(osub => {
-                const isSelected = selectedSubId && Number(osub.id) === Number(selectedSubId);
-                optionsHtml.push(`<option value="${osub.id}" ${isSelected ? 'selected' : ''}>+ ${escapeHtml(osub.subject_code)} — ${escapeHtml(osub.subject_name)} (*${formatUnits(osub.units)}u)</option>`);
-            });
-            optionsHtml.push(`</optgroup>`);
-        }
-
-        subjectSelect.innerHTML = optionsHtml.join('');
-
-        if (selectedSubId) {
-            subjectSelect.value = String(selectedSubId);
-        }
+    function getAstFilteredSections() {
+        const q = (document.getElementById('astSectionSearchInput')?.value || '').trim().toLowerCase();
+        return state.sections.filter(sec => {
+            if (!q) return true;
+            return (
+                sec.section_name.toLowerCase().includes(q) ||
+                (sec.year_level && sec.year_level.toLowerCase().includes(q))
+            );
+        });
     }
 
-    function onAstSubjectChange(subId) {
-        const secId = document.getElementById('astSectionSelect')?.value;
-        const schedInput = document.getElementById('astScheduleInput');
-        const teacherSelect = document.getElementById('astTeacherSelect');
-        if (!secId || !subId) return;
+    function renderAstSectionsList() {
+        const container = document.getElementById('astSectionsListContainer');
+        if (!container) return;
 
-        const sec = state.sections.find(s => s.id === Number(secId));
-        const sub = sec?.assigned_subjects?.find(s => Number(s.subject_id) === Number(subId));
-        if (sub) {
-            if (sub.schedule && schedInput) schedInput.value = sub.schedule;
-            if (sub.teacher_id && teacherSelect && !teacherSelect.value) {
-                teacherSelect.value = String(sub.teacher_id);
+        const filtered = getAstFilteredSections();
+
+        if (state.sections.length === 0) {
+            container.innerHTML = `
+                <div class="p-6 text-center text-xs text-[#475569]">
+                    No sections created yet. Create a section first.
+                </div>
+            `;
+            return;
+        }
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <div class="p-6 text-center text-xs text-[#475569]">
+                    No sections match your filter.
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = filtered.map(sec => {
+            const isChecked = astCheckedSections.has(sec.id);
+            const subCount = sec.assigned_subjects ? sec.assigned_subjects.length : (sec.subject_count || 0);
+            return `
+                <label class="flex items-center justify-between p-2.5 hover:bg-[#F5F7FA] transition cursor-pointer select-none ${isChecked ? 'bg-[#EBF1F8]/50' : ''}">
+                    <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                        <input type="checkbox"
+                            value="${sec.id}"
+                            ${isChecked ? 'checked' : ''}
+                            onchange="App.onAstSectionToggle(${sec.id}, this.checked)"
+                            class="w-4 h-4 rounded text-[#17243A] focus:ring-[#5276A7] border-[#D8DEE8] cursor-pointer shrink-0">
+                        <div class="min-w-0 flex-1">
+                            <span class="text-xs sm:text-sm font-semibold text-[#17243A] truncate block">${escapeHtml(sec.section_name)}</span>
+                            <span class="text-[11px] text-[#475569]">${sec.student_count || 0} students &bull; ${subCount} subjects</span>
+                        </div>
+                    </div>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA] shrink-0 ml-2">
+                        ${escapeHtml(sec.year_level)}
+                    </span>
+                </label>
+            `;
+        }).join('');
+
+        updateAstSummary();
+    }
+
+    function getAstFilteredSubjects() {
+        const q = (document.getElementById('astSubjectSearchInput')?.value || '').trim().toLowerCase();
+        return state.subjects.filter(sub => {
+            if (!q) return true;
+            return (
+                sub.subject_code.toLowerCase().includes(q) ||
+                sub.subject_name.toLowerCase().includes(q)
+            );
+        });
+    }
+
+    function renderAstSubjectsList() {
+        const container = document.getElementById('astSubjectsListContainer');
+        if (!container) return;
+
+        const filtered = getAstFilteredSubjects();
+
+        if (state.subjects.length === 0) {
+            container.innerHTML = `
+                <div class="p-6 text-center text-xs text-[#475569]">
+                    No subjects in catalog yet.
+                </div>
+            `;
+            return;
+        }
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <div class="p-6 text-center text-xs text-[#475569]">
+                    No subjects match your filter.
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = filtered.map(sub => {
+            const isChecked = astCheckedSubjects.has(sub.id);
+            return `
+                <label class="flex items-center justify-between p-2.5 hover:bg-[#F5F7FA] transition cursor-pointer select-none ${isChecked ? 'bg-[#EBF1F8]/50' : ''}">
+                    <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                        <input type="checkbox"
+                            value="${sub.id}"
+                            ${isChecked ? 'checked' : ''}
+                            onchange="App.onAstSubjectToggle(${sub.id}, this.checked)"
+                            class="w-4 h-4 rounded text-[#17243A] focus:ring-[#5276A7] border-[#D8DEE8] cursor-pointer shrink-0">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="font-mono text-xs font-bold text-[#2C4870] bg-[#EBF1F8] px-1.5 py-0.5 rounded border border-[#C5D5EA]">${escapeHtml(sub.subject_code)}</span>
+                                <span class="text-xs font-semibold text-[#17243A] truncate">${escapeHtml(sub.subject_name)}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <span class="text-[11px] font-bold text-[#0F766E] shrink-0 ml-2">
+                        *${formatUnits(sub.units)}u
+                    </span>
+                </label>
+            `;
+        }).join('');
+
+        updateAstSummary();
+    }
+
+    function onAstSectionToggle(sectionId, isChecked) {
+        if (isChecked) {
+            astCheckedSections.add(Number(sectionId));
+        } else {
+            astCheckedSections.delete(Number(sectionId));
+        }
+        renderAstSectionsList();
+        updateAstSummary();
+    }
+
+    function onAstSubjectToggle(subjectId, isChecked) {
+        if (isChecked) {
+            astCheckedSubjects.add(Number(subjectId));
+        } else {
+            astCheckedSubjects.delete(Number(subjectId));
+        }
+        renderAstSubjectsList();
+        updateAstSummary();
+    }
+
+    function astToggleAllSections(selectAll) {
+        const visible = getAstFilteredSections();
+        if (selectAll) {
+            visible.forEach(s => astCheckedSections.add(s.id));
+        } else {
+            const hasQuery = Boolean((document.getElementById('astSectionSearchInput')?.value || '').trim());
+            if (hasQuery) {
+                visible.forEach(s => astCheckedSections.delete(s.id));
+            } else {
+                astCheckedSections.clear();
             }
         }
+        renderAstSectionsList();
+        updateAstSummary();
+    }
+
+    function astToggleAllSubjects(selectAll) {
+        const visible = getAstFilteredSubjects();
+        if (selectAll) {
+            visible.forEach(s => astCheckedSubjects.add(s.id));
+        } else {
+            const hasQuery = Boolean((document.getElementById('astSubjectSearchInput')?.value || '').trim());
+            if (hasQuery) {
+                visible.forEach(s => astCheckedSubjects.delete(s.id));
+            } else {
+                astCheckedSubjects.clear();
+            }
+        }
+        renderAstSubjectsList();
+        updateAstSummary();
+    }
+
+    function updateAstSummary() {
+        const secCount = astCheckedSections.size;
+        const subCount = astCheckedSubjects.size;
+        const totalLoads = secCount * subCount;
+
+        const secBadge = document.getElementById('astSectionsCountBadge');
+        if (secBadge) {
+            secBadge.textContent = `${secCount} / ${state.sections.length} selected`;
+            secBadge.className = secCount > 0
+                ? 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]'
+                : 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]';
+        }
+
+        const subBadge = document.getElementById('astSubjectsCountBadge');
+        if (subBadge) {
+            subBadge.textContent = `${subCount} / ${state.subjects.length} selected`;
+            subBadge.className = subCount > 0
+                ? 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]'
+                : 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]';
+        }
+
+        const preview = document.getElementById('astSummaryPreview');
+        const submitBtn = document.getElementById('astSubmitBtn');
+        const teacherId = document.getElementById('astTeacherSelect')?.value;
+        const teacher = (state.teachers || []).find(t => String(t.id) === String(teacherId));
+
+        if (!preview || !submitBtn) return;
+
+        if (!teacherId) {
+            preview.className = 'p-3.5 rounded-xl border border-[#F0D296] bg-[#FFF0D1] text-xs sm:text-sm font-medium transition flex items-center justify-between gap-3 text-[#80530F]';
+            preview.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <span class="text-base">&#9888;</span>
+                    <span>Please select a teacher account above to proceed with assignment.</span>
+                </div>
+            `;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Assign Teaching Loads';
+            return;
+        }
+
+        if (secCount === 0 || subCount === 0) {
+            preview.className = 'p-3.5 rounded-xl border border-[#F0D296] bg-[#FFF0D1] text-xs sm:text-sm font-medium transition flex items-center justify-between gap-3 text-[#80530F]';
+            preview.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <span class="text-base">&#9888;</span>
+                    <span>Select at least 1 section and 1 subject. (${secCount} sections, ${subCount} subjects checked)</span>
+                </div>
+            `;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Assign Teaching Loads';
+            return;
+        }
+
+        preview.className = 'p-3.5 rounded-xl border border-[#99D8CC] bg-[#D5F0EA] text-xs sm:text-sm font-medium transition flex items-center justify-between gap-3 text-[#17243A]';
+        preview.innerHTML = `
+            <div class="flex items-center gap-2">
+                <span class="text-[#0F766E] font-bold text-base">&#10003;</span>
+                <div>
+                    Assigning <strong class="text-[#0F766E]">${escapeHtml(teacher.full_name)}</strong> to 
+                    <strong>${subCount}</strong> subject${subCount === 1 ? '' : 's'} across 
+                    <strong>${secCount}</strong> section${secCount === 1 ? '' : 's'}.
+                </div>
+            </div>
+            <span class="font-mono font-bold text-xs bg-white px-2.5 py-1 rounded-lg border border-[#99D8CC] text-[#0F766E] shrink-0">
+                ${totalLoads} Load${totalLoads === 1 ? '' : 's'}
+            </span>
+        `;
+        submitBtn.disabled = false;
+        submitBtn.textContent = `Assign ${totalLoads} Teaching Load${totalLoads === 1 ? '' : 's'}`;
     }
 
     async function handleAssignSubjectTeacherSubmit(e) {
         e.preventDefault();
         const teacherId = Number(document.getElementById('astTeacherSelect')?.value);
-        const sectionId = Number(document.getElementById('astSectionSelect')?.value);
-        const subjectId = Number(document.getElementById('astSubjectSelect')?.value);
         const schedule = (document.getElementById('astScheduleInput')?.value || '').trim();
 
-        if (!teacherId || !sectionId || !subjectId) {
-            showToast('Please select a teacher, section, and subject.', 'error');
+        const sectionIds = Array.from(astCheckedSections);
+        const subjectIds = Array.from(astCheckedSubjects);
+
+        if (!teacherId) {
+            showToast('Please select a teacher account.', 'error');
+            return;
+        }
+        if (sectionIds.length === 0) {
+            showToast('Please select at least one section.', 'error');
+            return;
+        }
+        if (subjectIds.length === 0) {
+            showToast('Please select at least one subject.', 'error');
             return;
         }
 
@@ -3894,8 +5044,8 @@ const App = (() => {
         try {
             const res = await apiRequest('assign_subject_teacher', {
                 teacher_id: teacherId,
-                section_id: sectionId,
-                subject_id: subjectId,
+                section_ids: sectionIds,
+                subject_ids: subjectIds,
                 schedule,
             });
             applySystemState(res);
@@ -4935,6 +6085,72 @@ const App = (() => {
     }
 
     // ==================== GRADE LOCKING & UNLOCK REQUESTS ====================
+    async function playGradeLockAnimation({ isLocking, subName, secName, qtr, onAction }) {
+        const modal = document.getElementById('gradeLockAnimationModal');
+        const titleEl = document.getElementById('glamTitle');
+        const subtitleEl = document.getElementById('glamSubtitle');
+        const shackleEl = document.getElementById('glamPadlockShackle');
+        const badgeEl = document.getElementById('glamBadge');
+        const ringEl = document.getElementById('glamRing');
+        const iconSvg = document.getElementById('glamPadlockSvg');
+
+        if (!modal) {
+            return await onAction();
+        }
+
+        // Display modal with initial animated state
+        modal.classList.remove('hidden');
+        if (isLocking) {
+            titleEl.textContent = 'Securing & Finalizing Grades...';
+            subtitleEl.innerHTML = `Encrypting and locking grades for <strong>${escapeHtml(subName || '')}</strong> in <strong>${escapeHtml(secName || '')} (${escapeHtml(qtr || '')})</strong>.`;
+            badgeEl.className = 'relative w-20 h-20 rounded-2xl bg-[#D5F0EA] border border-[#99D8CC] flex items-center justify-center shadow-lg transition-all duration-300';
+            ringEl.className = 'absolute inset-0 rounded-full border-4 border-[#0F766E]/30 animate-ping';
+            iconSvg.className = 'w-10 h-10 text-[#0F766E] transition-all duration-300';
+            if (shackleEl) shackleEl.style.transform = 'translateY(-7px)';
+        } else {
+            titleEl.textContent = 'Unlocking Grade Sheet...';
+            subtitleEl.innerHTML = `Lifting read-only lock for <strong>${escapeHtml(subName || '')}</strong> in <strong>${escapeHtml(secName || '')} (${escapeHtml(qtr || '')})</strong>.`;
+            badgeEl.className = 'relative w-20 h-20 rounded-2xl bg-[#FFF0D1] border border-[#F0D296] flex items-center justify-center shadow-lg transition-all duration-300';
+            ringEl.className = 'absolute inset-0 rounded-full border-4 border-[#B7791F]/30 animate-ping';
+            iconSvg.className = 'w-10 h-10 text-[#80530F] transition-all duration-300';
+            if (shackleEl) shackleEl.style.transform = 'translateY(0)';
+        }
+
+        try {
+            const res = await onAction();
+
+            // Animate padlock snap shut or unlock open
+            if (isLocking) {
+                if (shackleEl) shackleEl.style.transform = 'translateY(0)';
+                titleEl.textContent = 'Grades Successfully Finalized!';
+                subtitleEl.textContent = 'Institutional read-only policy has been applied to this grade sheet.';
+                badgeEl.classList.add('scale-105');
+            } else {
+                if (shackleEl) shackleEl.style.transform = 'translateY(-7px) rotate(-28deg)';
+                titleEl.textContent = 'Grade Sheet Unlocked!';
+                subtitleEl.textContent = 'Faculty can now edit and update student grades.';
+                badgeEl.classList.add('scale-105');
+            }
+
+            // Brief delay for satisfying visual feedback
+            await new Promise(r => setTimeout(r, 650));
+            modal.classList.add('hidden');
+            badgeEl.classList.remove('scale-105');
+
+            // Grade sheet table flash
+            const sheetContainer = document.getElementById('gradingSheetContainer');
+            if (sheetContainer) {
+                sheetContainer.classList.add('grade-table-locked-flash');
+                setTimeout(() => sheetContainer.classList.remove('grade-table-locked-flash'), 800);
+            }
+
+            return res;
+        } catch (err) {
+            modal.classList.add('hidden');
+            throw err;
+        }
+    }
+
     async function lockCurrentGradesSheet() {
         const secId = state.gradingSectionId;
         const subId = state.gradingSubjectId;
@@ -4961,13 +6177,19 @@ const App = (() => {
         btn.onclick = async () => {
             btn.disabled = true;
             try {
-                const res = await apiRequest('lock_grades', {
-                    section_id: Number(secId),
-                    subject_id: Number(subId),
-                    quarter: qtr,
+                closeModal('confirmModal');
+                const res = await playGradeLockAnimation({
+                    isLocking: true,
+                    subName,
+                    secName: sec?.section_name,
+                    qtr,
+                    onAction: () => apiRequest('lock_grades', {
+                        section_id: Number(secId),
+                        subject_id: Number(subId),
+                        quarter: qtr,
+                    })
                 });
                 applySystemState(res);
-                closeModal('confirmModal');
                 showToast(res.message, 'success');
             } catch (err) {
                 showToast(err.message, 'error');
@@ -5067,14 +6289,33 @@ const App = (() => {
         if (!targetSecId || !targetSubId || !targetQtr) return;
 
         try {
-            const res = await apiRequest('approve_unlock_grades', {
-                section_id: Number(targetSecId),
-                subject_id: Number(targetSubId),
-                quarter: targetQtr,
-                decision,
-            });
-            applySystemState(res);
             closeModal('unlockReviewModal');
+            let res;
+            if (decision === 'approve') {
+                const sec = state.sections.find(s => s.id === Number(targetSecId));
+                const sub = sec?.assigned_subjects?.find(s => String(s.subject_id) === String(targetSubId));
+                const subName = sub ? sub.subject_code : 'Subject';
+                res = await playGradeLockAnimation({
+                    isLocking: false,
+                    subName,
+                    secName: sec?.section_name,
+                    qtr: targetQtr,
+                    onAction: () => apiRequest('approve_unlock_grades', {
+                        section_id: Number(targetSecId),
+                        subject_id: Number(targetSubId),
+                        quarter: targetQtr,
+                        decision,
+                    })
+                });
+            } else {
+                res = await apiRequest('approve_unlock_grades', {
+                    section_id: Number(targetSecId),
+                    subject_id: Number(targetSubId),
+                    quarter: targetQtr,
+                    decision,
+                });
+            }
+            applySystemState(res);
             showToast(res.message, 'success');
         } catch (err) {
             showToast(err.message, 'error');
@@ -5087,12 +6328,22 @@ const App = (() => {
             return;
         }
 
+        const sec = state.sections.find(s => s.id === Number(secId));
+        const sub = sec?.assigned_subjects?.find(s => String(s.subject_id) === String(subId));
+        const subName = sub ? sub.subject_code : 'this subject';
+
         try {
-            const res = await apiRequest('toggle_grade_lock', {
-                section_id: Number(secId),
-                subject_id: Number(subId),
-                quarter: qtr,
-                is_locked: isLocked ? 1 : 0,
+            const res = await playGradeLockAnimation({
+                isLocking: Boolean(isLocked),
+                subName,
+                secName: sec?.section_name,
+                qtr,
+                onAction: () => apiRequest('toggle_grade_lock', {
+                    section_id: Number(secId),
+                    subject_id: Number(subId),
+                    quarter: qtr,
+                    is_locked: isLocked ? 1 : 0,
+                })
             });
             applySystemState(res);
             showToast(res.message, 'success');
@@ -5130,6 +6381,7 @@ const App = (() => {
                 state.dashboardSectionId = secId;
                 state.gradingSectionId = secId;
                 state.reportSectionId = secId;
+                state.studentSectionId = String(secId);
                 const studentFilter = document.getElementById('studentSectionFilter');
                 if (studentFilter) studentFilter.value = String(secId);
             }
@@ -5169,9 +6421,17 @@ const App = (() => {
         document.getElementById('subjectSearchInput')?.addEventListener('input', renderSubjectsView);
         document.getElementById('assignSubjectSearch')?.addEventListener('input', renderAssignSubjectsModalList);
 
-        document.getElementById('studentSearchInput')?.addEventListener('input', renderStudentsView);
-        document.getElementById('studentYearFilter')?.addEventListener('change', renderStudentsView);
+        document.getElementById('studentSearchInput')?.addEventListener('input', () => {
+            state.studentCurrentPage = 1;
+            renderStudentsView();
+        });
+        document.getElementById('studentYearFilter')?.addEventListener('change', () => {
+            state.studentCurrentPage = 1;
+            renderStudentsView();
+        });
         document.getElementById('studentSectionFilter')?.addEventListener('change', e => {
+            state.studentSectionId = e.target.value;
+            state.studentCurrentPage = 1;
             if (state.currentView === 'students') {
                 updateBrowserUrl({
                     page: 'students',
@@ -5180,7 +6440,11 @@ const App = (() => {
             }
             renderStudentsView();
         });
-        document.getElementById('studentGenderFilter')?.addEventListener('change', renderStudentsView);
+        document.getElementById('studentGenderFilter')?.addEventListener('change', e => {
+            state.studentGenderFilter = e.target.value;
+            state.studentCurrentPage = 1;
+            renderStudentsView();
+        });
 
         // Grading View Selectors
         document.getElementById('gradingSectionSelect')?.addEventListener('change', e => {
@@ -5341,6 +6605,11 @@ const App = (() => {
         confirmDeleteStudent,
         filterStudentsBySection,
         resetStudentFilters,
+        setStudentSectionFilter,
+        setStudentGenderFilter,
+        setStudentPageSize,
+        setStudentPage,
+        openStudentSubjectsModal,
         seedSampleData,
         openSectionGrading,
         setGradingQuarter,
@@ -5351,6 +6620,10 @@ const App = (() => {
         onGradeCellBlur,
         setSingleStudentGrade,
         quickFillEmptyGrades,
+        jumpToNextEmptyGradeCell,
+        applyPresetToActiveCell,
+        toggleGradingFormulaView,
+        updateMissingGradesCounter,
         onLiveGradeCellInput,
         onMasterSheetCellInput,
         saveCurrentGradesSheet,
@@ -5363,6 +6636,8 @@ const App = (() => {
         onDashboardStudentSearch,
         openDashboardActiveSectionStudentModal,
         printReport,
+        setSectionViewMode,
+        toggleSectionCurriculumExpand,
         renderUsersView,
         openTeacherModal,
         onTeacherRoleSelectChange,
@@ -5374,8 +6649,13 @@ const App = (() => {
         submitUnlockDecision,
         toggleGradeLockDirect,
         openAssignSubjectTeacherModal,
-        onAstSectionChange,
-        onAstSubjectChange,
+        onAstTeacherChange,
+        renderAstSectionsList,
+        renderAstSubjectsList,
+        onAstSectionToggle,
+        onAstSubjectToggle,
+        astToggleAllSections,
+        astToggleAllSubjects,
         handleAssignSubjectTeacherSubmit,
         openTeacherModalFromAssign,
         onAssignTeacherSelectChange,

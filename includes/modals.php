@@ -725,16 +725,16 @@
     </div>
 </div>
 
-<!-- ==================== MODAL 9: ASSIGN SUBJECT TO TEACHER ==================== -->
+<!-- ==================== MODAL 9: ASSIGN SUBJECTS & SECTIONS TO TEACHER ==================== -->
 <div id="assignSubjectTeacherModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="astModalTitle">
     <div class="min-h-screen px-4 text-center flex items-center justify-center">
         <div class="fixed inset-0 bg-[#17243A]/60 backdrop-blur-xs transition-opacity" onclick="App.closeModal('assignSubjectTeacherModal')"></div>
 
-        <div class="inline-block w-full max-w-lg my-8 text-left align-middle transition-all transform bg-white shadow-2xl rounded-2xl z-10 overflow-hidden border border-[#D8DEE8]">
+        <div class="inline-block w-full max-w-4xl my-8 text-left align-middle transition-all transform bg-white shadow-2xl rounded-2xl z-10 overflow-hidden border border-[#D8DEE8]">
             <div class="px-6 py-4 bg-[#17243A] text-white flex items-center justify-between">
                 <div>
-                    <h3 id="astModalTitle" class="font-display font-bold text-lg text-white">Assign Subject to Teacher</h3>
-                    <p class="text-xs sm:text-sm text-slate-300 mt-0.5">Link a specific section subject load to a registered teacher account</p>
+                    <h3 id="astModalTitle" class="font-display font-bold text-lg text-white">Assign Sections &amp; Subjects to Teacher</h3>
+                    <p class="text-xs sm:text-sm text-slate-300 mt-0.5">Assign multiple sections and subjects to an instructor in a single action</p>
                 </div>
                 <button type="button" onclick="App.closeModal('assignSubjectTeacherModal')" class="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-[#243752] transition cursor-pointer" aria-label="Close dialog">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -743,9 +743,9 @@
                 </button>
             </div>
 
-            <form id="assignSubjectTeacherForm" onsubmit="App.handleAssignSubjectTeacherSubmit(event)" class="p-6 space-y-4">
+            <form id="assignSubjectTeacherForm" class="p-6 space-y-4">
                 <!-- Select Teacher -->
-                <div>
+                <div class="bg-[#F5F7FA] p-4 rounded-xl border border-[#D8DEE8]">
                     <div class="flex items-center justify-between mb-1.5">
                         <label for="astTeacherSelect" class="block text-sm font-semibold text-[#17243A]">
                             Teacher Account <span class="text-[#9B3F72]">*</span>
@@ -754,51 +754,193 @@
                             + New Teacher Account
                         </button>
                     </div>
-                    <select id="astTeacherSelect" required class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white font-medium text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                    <select id="astTeacherSelect" required onchange="App.onAstTeacherChange(this.value)" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white font-medium text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                         <option value="">-- Select Teacher --</option>
                         <!-- Populated by JS -->
                     </select>
+                    <p id="astTeacherInfoPill" class="text-xs text-[#475569] mt-1.5 font-medium"></p>
                 </div>
 
-                <!-- Select Section -->
-                <div>
-                    <label for="astSectionSelect" class="block text-sm font-semibold text-[#17243A] mb-1.5">
-                        Section <span class="text-[#9B3F72]">*</span>
-                    </label>
-                    <select id="astSectionSelect" required onchange="App.onAstSectionChange(this.value)" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white font-medium text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
-                        <option value="">-- Select Section --</option>
-                        <!-- Populated by JS -->
-                    </select>
+                <!-- Dual Columns: Select Multiple Sections & Multiple Subjects -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Left Column: Multiple Sections -->
+                    <div class="flex flex-col border border-[#D8DEE8] rounded-xl p-3.5 bg-white">
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <label class="block text-xs font-bold uppercase tracking-wider text-[#17243A]">
+                                1. Select Section(s) <span class="text-[#9B3F72]">*</span>
+                            </label>
+                            <span id="astSectionsCountBadge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">0 selected</span>
+                        </div>
+
+                        <!-- Toolbar: Search + Select All / Clear -->
+                        <div class="flex items-center gap-2 mb-2.5">
+                            <input type="text" id="astSectionSearchInput" oninput="App.renderAstSectionsList()" placeholder="Filter sections..." class="flex-1 px-3 py-1.5 text-xs rounded-lg border border-[#D8DEE8] focus:border-[#5276A7] outline-none">
+                            <button type="button" onclick="App.astToggleAllSections(true)" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#F5F7FA] hover:bg-[#D8DEE8] text-[#17243A] border border-[#D8DEE8] transition cursor-pointer shrink-0">
+                                All
+                            </button>
+                            <button type="button" onclick="App.astToggleAllSections(false)" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#F5F7FA] hover:bg-[#D8DEE8] text-[#475569] border border-[#D8DEE8] transition cursor-pointer shrink-0">
+                                None
+                            </button>
+                        </div>
+
+                        <!-- Scrollable Checkbox List -->
+                        <div id="astSectionsListContainer" class="h-60 overflow-y-auto custom-scrollbar border border-[#D8DEE8] rounded-xl divide-y divide-[#D8DEE8] bg-white">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Multiple Subjects -->
+                    <div class="flex flex-col border border-[#D8DEE8] rounded-xl p-3.5 bg-white">
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <label class="block text-xs font-bold uppercase tracking-wider text-[#17243A]">
+                                2. Select Subject(s) <span class="text-[#9B3F72]">*</span>
+                            </label>
+                            <span id="astSubjectsCountBadge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">0 selected</span>
+                        </div>
+
+                        <!-- Toolbar: Search + Select All / Clear -->
+                        <div class="flex items-center gap-2 mb-2.5">
+                            <input type="text" id="astSubjectSearchInput" oninput="App.renderAstSubjectsList()" placeholder="Filter subjects..." class="flex-1 px-3 py-1.5 text-xs rounded-lg border border-[#D8DEE8] focus:border-[#5276A7] outline-none">
+                            <button type="button" onclick="App.astToggleAllSubjects(true)" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#F5F7FA] hover:bg-[#D8DEE8] text-[#17243A] border border-[#D8DEE8] transition cursor-pointer shrink-0">
+                                All
+                            </button>
+                            <button type="button" onclick="App.astToggleAllSubjects(false)" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#F5F7FA] hover:bg-[#D8DEE8] text-[#475569] border border-[#D8DEE8] transition cursor-pointer shrink-0">
+                                None
+                            </button>
+                        </div>
+
+                        <!-- Scrollable Checkbox List -->
+                        <div id="astSubjectsListContainer" class="h-60 overflow-y-auto custom-scrollbar border border-[#D8DEE8] rounded-xl divide-y divide-[#D8DEE8] bg-white">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Select Subject -->
-                <div>
-                    <label for="astSubjectSelect" class="block text-sm font-semibold text-[#17243A] mb-1.5">
-                        Subject <span class="text-[#9B3F72]">*</span>
-                    </label>
-                    <select id="astSubjectSelect" required onchange="App.onAstSubjectChange(this.value)" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white font-medium text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
-                        <option value="">-- Select Subject --</option>
-                        <!-- Populated by JS -->
-                    </select>
-                </div>
-
-                <!-- Class Schedule -->
+                <!-- Class Schedule (Optional) -->
                 <div>
                     <label for="astScheduleInput" class="block text-sm font-semibold text-[#17243A] mb-1.5">
-                        Class Schedule <span class="text-[#475569] font-normal">(Optional)</span>
+                        Class Schedule <span class="text-[#475569] font-normal">(Optional — applied to assigned loads)</span>
                     </label>
                     <input type="text" id="astScheduleInput" placeholder="e.g. MWF 8:00 AM – 10:00 AM" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                </div>
+
+                <!-- Real-time Dynamic Summary Preview Alert -->
+                <div id="astSummaryPreview" class="p-3.5 rounded-xl border text-xs sm:text-sm font-medium transition flex items-center justify-between gap-3">
+                    <!-- Populated by JS -->
                 </div>
 
                 <div class="pt-4 border-t border-[#D8DEE8] flex items-center justify-end gap-2.5">
                     <button type="button" onclick="App.closeModal('assignSubjectTeacherModal')" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-[#475569] hover:bg-[#F5F7FA] transition cursor-pointer">
                         Cancel
                     </button>
-                    <button type="submit" id="astSubmitBtn" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer">
-                        Assign Subject to Teacher
+                    <button type="submit" id="astSubmitBtn" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                        Assign Teaching Loads
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MODAL 10: STUDENT CURRICULUM SUBJECTS VIEWER ==================== -->
+<div id="studentSubjectsModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="studentSubjectsModalTitle">
+    <div class="min-h-screen px-4 text-center flex items-center justify-center">
+        <div class="fixed inset-0 bg-[#17243A]/60 backdrop-blur-xs transition-opacity" onclick="App.closeModal('studentSubjectsModal')"></div>
+
+        <div class="inline-block w-full max-w-2xl my-8 text-left align-middle transition-all transform bg-white shadow-2xl rounded-2xl z-10 overflow-hidden border border-[#D8DEE8]">
+            <div class="px-6 py-4 bg-[#17243A] text-white flex items-center justify-between">
+                <div>
+                    <h3 id="studentSubjectsModalTitle" class="font-display font-bold text-lg text-white">Student Curriculum &amp; Enrolled Subjects</h3>
+                    <p id="studentSubjectsModalSubtitle" class="text-xs sm:text-sm text-slate-300 mt-0.5">Enrolled subject loads and assigned instructors</p>
+                </div>
+                <button type="button" onclick="App.closeModal('studentSubjectsModal')" class="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-[#243752] transition cursor-pointer" aria-label="Close dialog">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div class="flex items-center justify-between bg-[#F5F7FA] p-3.5 rounded-xl border border-[#D8DEE8] text-xs">
+                    <div>
+                        <span class="text-[#475569]">Student: </span>
+                        <strong id="ssmStudentName" class="text-[#17243A] font-bold"></strong>
+                        <span class="text-[#475569] ml-1.5" id="ssmStudentNo"></span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="ssmSectionName" class="px-2.5 py-0.5 rounded-full font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]"></span>
+                        <span id="ssmTotalUnits" class="px-2.5 py-0.5 rounded-full font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]"></span>
+                    </div>
+                </div>
+
+                <div class="max-h-72 overflow-y-auto custom-scrollbar border border-[#D8DEE8] rounded-xl overflow-hidden">
+                    <table class="w-full text-left border-collapse text-xs sm:text-sm">
+                        <thead class="bg-[#F5F7FA] border-b border-[#D8DEE8] font-bold uppercase tracking-wider text-[#475569] text-[11px] sticky top-0">
+                            <tr>
+                                <th scope="col" class="py-2.5 px-3.5">Code</th>
+                                <th scope="col" class="py-2.5 px-3.5">Subject Description</th>
+                                <th scope="col" class="py-2.5 px-3.5 text-center">Units</th>
+                                <th scope="col" class="py-2.5 px-3.5">Instructor</th>
+                                <th scope="col" class="py-2.5 px-3.5">Schedule</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentSubjectsModalBody" class="divide-y divide-[#D8DEE8]">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pt-2 flex items-center justify-end">
+                    <button type="button" onclick="App.closeModal('studentSubjectsModal')" class="px-4 py-2 rounded-xl text-sm font-semibold text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8] border border-[#D8DEE8] transition cursor-pointer">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MODAL 11: GRADE LOCK & UNLOCK ANIMATION OVERLAY ==================== -->
+<div id="gradeLockAnimationModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="glamTitle">
+    <div class="min-h-screen px-4 text-center flex items-center justify-center">
+        <!-- Backdrop with blur -->
+        <div class="fixed inset-0 bg-[#17243A]/80 backdrop-blur-sm transition-opacity"></div>
+
+        <div class="inline-block w-full max-w-sm my-8 text-center align-middle transition-all transform bg-white shadow-2xl rounded-3xl z-10 overflow-hidden border border-[#D8DEE8] p-7 sm:p-8">
+            <!-- Animated Lock Icon Canvas -->
+            <div class="relative w-24 h-24 mx-auto mb-5 flex items-center justify-center">
+                <!-- Outer Pulse Ring -->
+                <div id="glamRing" class="absolute inset-0 rounded-full border-4 border-[#0F766E]/20 animate-ping"></div>
+                <div id="glamBadge" class="relative w-20 h-20 rounded-2xl bg-[#D5F0EA] border border-[#99D8CC] flex items-center justify-center shadow-lg transition-all duration-300">
+                    <!-- Padlock SVG -->
+                    <svg id="glamPadlockSvg" class="w-10 h-10 text-[#0F766E] transition-all duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <!-- Shackle -->
+                        <path id="glamPadlockShackle" d="M7 11V7a5 5 0 0 1 10 0v4" class="transition-transform duration-500 origin-[7px_11px]"></path>
+                        <!-- Body -->
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" fill="currentColor" fill-opacity="0.12"></rect>
+                        <!-- Keyhole -->
+                        <circle cx="12" cy="16" r="1"></circle>
+                        <path d="M12 17v2"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Title & Status Description -->
+            <h3 id="glamTitle" class="font-display font-extrabold text-xl text-[#17243A] tracking-tight">
+                Securing &amp; Finalizing Grades
+            </h3>
+            <p id="glamSubtitle" class="text-xs sm:text-sm text-[#475569] mt-2 leading-relaxed">
+                Encrypting section standings and applying institutional read-only lock...
+            </p>
+
+            <!-- Animated Progress Bar -->
+            <div class="w-full bg-[#EBF1F8] h-1.5 rounded-full overflow-hidden mt-6 relative">
+                <div id="glamProgressBar" class="h-full bg-gradient-to-r from-[#0F766E] via-[#5276A7] to-[#0F766E] rounded-full w-full animate-shimmer"></div>
+            </div>
+
+            <p id="glamHint" class="text-[11px] text-[#64748B] mt-4 font-mono">
+                Academic Integrity Policy &bull; DepEd / CHED Verified
+            </p>
         </div>
     </div>
 </div>

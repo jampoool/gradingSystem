@@ -1,12 +1,7 @@
     <!-- Mobile Header (Midnight Navy #17243A) -->
     <header class="lg:hidden bg-[#17243A] text-white px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-md no-print border-b border-[#243752]">
         <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-xl bg-[#5276A7] flex items-center justify-center shadow-inner">
-                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l9-5-9-5-9 5 9 5z"/>
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"/>
-                </svg>
-            </div>
+            <?= renderAcademicSealSvg('w-9 h-9') ?>
             <div>
                 <span class="font-display font-bold text-base tracking-tight block leading-none">GradeFlow</span>
                 <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-300">Academic Management</span>
@@ -47,12 +42,7 @@
         <!-- Brand Logo -->
         <div class="px-4 py-4 border-b border-[#243752] flex items-center justify-between shrink-0">
             <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl bg-[#5276A7] flex items-center justify-center shadow-md">
-                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.1" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l9-5-9-5-9 5 9 5z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"/>
-                    </svg>
-                </div>
+                <?= renderAcademicSealSvg('w-9 h-9') ?>
                 <div>
                     <h1 class="font-display font-bold text-white text-base tracking-tight leading-none">GradeFlow</h1>
                     <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-300 mt-1">Academic Management</p>

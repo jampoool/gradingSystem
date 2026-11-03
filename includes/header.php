@@ -62,3 +62,29 @@
 <body data-role="<?= htmlspecialchars($currentUser['role'] ?? 'guest') ?>" class="h-full w-full overflow-x-hidden font-sans text-sm sm:text-base text-[#17243A] antialiased bg-[#F5F7FA] selection:bg-[#17243A] selection:text-white">
     <!-- Skip to Main Content Link (WCAG 2.1 AA 2.4.1 Bypass Blocks) -->
     <a href="#mainContent" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2.5 focus:bg-[#17243A] focus:text-white focus:rounded-xl focus:shadow-xl focus:border-2 focus:border-[#D5F0EA] font-semibold text-sm">Skip to main content</a>
+
+    <!-- App Global Initialization / Logged In Loading Animation Screen -->
+    <div id="appGlobalLoader" class="fixed inset-0 z-50 bg-[#17243A] flex flex-col items-center justify-center p-6 text-white text-center transition-opacity duration-500" role="status" aria-label="Loading GradeFlow Portal">
+        <div class="relative flex flex-col items-center max-w-sm w-full">
+            <!-- Authentic Academic Crest with Pulse -->
+            <div class="relative w-20 h-20 mb-6 flex items-center justify-center">
+                <div class="relative w-18 h-18 flex items-center justify-center crest-pulse">
+                    <?= renderAcademicSealSvg('w-18 h-18') ?>
+                </div>
+            </div>
+
+            <h2 class="font-display font-extrabold text-2xl text-white tracking-tight">GradeFlow</h2>
+            <p class="text-xs font-semibold uppercase tracking-widest text-[#99D8CC] mt-1">Academic Management Platform</p>
+            
+            <p id="appLoaderStatusText" class="text-sm text-slate-300 mt-4 leading-relaxed">
+                Loading academic records and preparing faculty workspace...
+            </p>
+
+            <!-- Progress Bar with Shimmer -->
+            <div class="w-64 bg-white/10 h-1.5 rounded-full overflow-hidden mt-6 relative border border-white/10">
+                <div class="h-full bg-gradient-to-r from-[#0F766E] via-[#5276A7] to-[#99D8CC] rounded-full w-full animate-shimmer"></div>
+            </div>
+
+            <span class="text-[11px] text-slate-400 mt-4 font-mono">Academic Year 2026–2027</span>
+        </div>
+    </div>

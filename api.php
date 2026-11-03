@@ -872,29 +872,43 @@ try {
             if ($authUser['role'] !== 'admin') {
                 respond(false, 'Only administrators can assign subjects to teachers.', [], 403);
             }
-            $sectionId = (int)($input['section_id'] ?? 0);
-            $subjectId = (int)($input['subject_id'] ?? 0);
+
+            // Extract multiple or single section IDs
+            $sectionIds = [];
+            if (!empty($input['section_ids']) && is_array($input['section_ids'])) {
+                foreach ($input['section_ids'] as $sid) {
+                    $val = (int)$sid;
+                    if ($val > 0) $sectionIds[] = $val;
+                }
+            } elseif (!empty($input['section_id'])) {
+                $val = (int)$input['section_id'];
+                if ($val > 0) $sectionIds[] = $val;
+            }
+            $sectionIds = array_values(array_unique($sectionIds));
+
+            // Extract multiple or single subject IDs
+            $subjectIds = [];
+            if (!empty($input['subject_ids']) && is_array($input['subject_ids'])) {
+                foreach ($input['subject_ids'] as $subid) {
+                    $val = (int)$subid;
+                    if ($val > 0) $subjectIds[] = $val;
+                }
+            } elseif (!empty($input['subject_id'])) {
+                $val = (int)$input['subject_id'];
+                if ($val > 0) $subjectIds[] = $val;
+            }
+            $subjectIds = array_values(array_unique($subjectIds));
+
+            if (empty($sectionIds)) {
+                respond(false, 'Please select at least one section.', [], 422);
+            }
+            if (empty($subjectIds)) {
+                respond(false, 'Please select at least one subject.', [], 422);
+            }
+
             $teacherId = isset($input['teacher_id']) && (int)$input['teacher_id'] > 0 ? (int)$input['teacher_id'] : null;
             $schedule = isset($input['schedule']) ? trim((string)$input['schedule']) : null;
             $customInstructor = isset($input['instructor']) ? trim((string)$input['instructor']) : null;
-
-            if ($sectionId <= 0 || $subjectId <= 0) {
-                respond(false, 'Please specify both a valid section and subject.', [], 422);
-            }
-
-            $secStmt = $pdo->prepare("SELECT section_name FROM sections WHERE id = ?");
-            $secStmt->execute([$sectionId]);
-            $secRow = $secStmt->fetch();
-            if (!$secRow) {
-                respond(false, 'Section not found.', [], 404);
-            }
-
-            $subStmt = $pdo->prepare("SELECT subject_code, subject_name FROM subjects WHERE id = ?");
-            $subStmt->execute([$subjectId]);
-            $subRow = $subStmt->fetch();
-            if (!$subRow) {
-                respond(false, 'Subject not found.', [], 404);
-            }
 
             $instructorName = $customInstructor;
             if ($teacherId !== null) {
@@ -907,23 +921,62 @@ try {
                 $instructorName = $tRow['full_name'];
             }
 
-            // Check if section_subject exists
-            $ssStmt = $pdo->prepare("SELECT id, schedule FROM section_subjects WHERE section_id = ? AND subject_id = ?");
-            $ssStmt->execute([$sectionId, $subjectId]);
-            $existingSS = $ssStmt->fetch();
+            // Validate sections exist
+            $secPlaceholders = implode(',', array_fill(0, count($sectionIds), '?'));
+            $secStmt = $pdo->prepare("SELECT id, section_name FROM sections WHERE id IN ($secPlaceholders)");
+            $secStmt->execute($sectionIds);
+            $validSections = $secStmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
-            if ($existingSS) {
-                $finalSchedule = $schedule !== null && $schedule !== '' ? $schedule : $existingSS['schedule'];
-                $upd = $pdo->prepare("UPDATE section_subjects SET teacher_id = ?, instructor = ?, schedule = ? WHERE id = ?");
-                $upd->execute([$teacherId, $instructorName, $finalSchedule, $existingSS['id']]);
-            } else {
-                $maxOrder = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM section_subjects WHERE section_id = {$sectionId}")->fetchColumn();
-                $ins = $pdo->prepare("INSERT INTO section_subjects (section_id, subject_id, schedule, instructor, teacher_id, sort_order) VALUES (?, ?, ?, ?, ?, ?)");
-                $ins->execute([$sectionId, $subjectId, $schedule, $instructorName, $teacherId, $maxOrder]);
+            if (empty($validSections)) {
+                respond(false, 'None of the specified sections were found.', [], 404);
             }
 
+            // Validate subjects exist
+            $subPlaceholders = implode(',', array_fill(0, count($subjectIds), '?'));
+            $subStmt = $pdo->prepare("SELECT id, subject_code FROM subjects WHERE id IN ($subPlaceholders)");
+            $subStmt->execute($subjectIds);
+            $validSubjects = $subStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+            if (empty($validSubjects)) {
+                respond(false, 'None of the specified subjects were found.', [], 404);
+            }
+
+            $assignedCount = 0;
+            $findSSStmt = $pdo->prepare("SELECT id, schedule FROM section_subjects WHERE section_id = ? AND subject_id = ?");
+            $updSSStmt = $pdo->prepare("UPDATE section_subjects SET teacher_id = ?, instructor = ?, schedule = CASE WHEN ? <> '' THEN ? ELSE schedule END WHERE id = ?");
+            $insSSStmt = $pdo->prepare("INSERT INTO section_subjects (section_id, subject_id, schedule, instructor, teacher_id, sort_order) VALUES (?, ?, ?, ?, ?, ?)");
+            $maxOrderStmt = $pdo->prepare("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM section_subjects WHERE section_id = ?");
+
+            $schedVal = $schedule ?? '';
+
+            foreach (array_keys($validSections) as $secId) {
+                foreach (array_keys($validSubjects) as $subId) {
+                    $findSSStmt->execute([$secId, $subId]);
+                    $existingSS = $findSSStmt->fetch();
+                    if ($existingSS) {
+                        $updSSStmt->execute([$teacherId, $instructorName, $schedVal, $schedVal, $existingSS['id']]);
+                    } else {
+                        $maxOrderStmt->execute([$secId]);
+                        $nextOrder = (int)$maxOrderStmt->fetchColumn();
+                        $insSSStmt->execute([$secId, $subId, $schedule, $instructorName, $teacherId, $nextOrder]);
+                    }
+                    $assignedCount++;
+                }
+            }
+
+            $secCount = count($validSections);
+            $subCount = count($validSubjects);
             $assignNote = $instructorName ? "assigned to {$instructorName}" : "unassigned";
-            respond(true, "Subject {$subRow['subject_code']} in {$secRow['section_name']} is now {$assignNote}.", fetchSystemState($pdo));
+
+            if ($secCount === 1 && $subCount === 1) {
+                $secName = reset($validSections);
+                $subCode = reset($validSubjects);
+                $msg = "Subject {$subCode} in {$secName} is now {$assignNote}.";
+            } else {
+                $msg = "Successfully {$assignNote} for {$subCount} subject(s) across {$secCount} section(s) ({$assignedCount} total load" . ($assignedCount === 1 ? '' : 's') . ").";
+            }
+
+            respond(true, $msg, fetchSystemState($pdo));
             break;
 
         case 'save_student':

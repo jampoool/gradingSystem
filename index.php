@@ -211,15 +211,69 @@ require_once __DIR__ . '/includes/header.php';
 
                 <!-- ==================== VIEW 2: SECTIONS & SUBJECT ASSIGNMENTS ==================== -->
                 <section id="view-sections" class="view-panel <?= $requestedPage === 'sections' ? '' : 'hidden' ?> space-y-4">
+                    <!-- Top Summary KPI Strip -->
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
+                        <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-xl bg-[#EBF1F8] text-[#2C4870] flex items-center justify-center shrink-0 font-bold">
+                                <svg class="w-5 h-5 text-[#2C4870]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-xs font-semibold text-[#475569] uppercase tracking-wider">Active Sections</p>
+                                <p id="secStatTotal" class="text-xl font-bold font-display text-[#17243A]">0</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-xl bg-[#D5F0EA] text-[#0F766E] flex items-center justify-center shrink-0 font-bold">
+                                <svg class="w-5 h-5 text-[#0F766E]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-1.5">
+                                    <p class="text-xs font-semibold text-[#475569] uppercase tracking-wider">Enrolled Students</p>
+                                </div>
+                                <p id="secStatStudents" class="text-xl font-bold font-display text-[#0F766E]">0</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-xl bg-[#EBF1F8] text-[#5276A7] flex items-center justify-center shrink-0 font-bold">
+                                <svg class="w-5 h-5 text-[#5276A7]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-xs font-semibold text-[#475569] uppercase tracking-wider">Curriculum Loads</p>
+                                <p id="secStatLoads" class="text-xl font-bold font-display text-[#5276A7]">0</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-xl bg-[#FFF0D1] text-[#80530F] flex items-center justify-center shrink-0 font-bold">
+                                <svg class="w-5 h-5 text-[#B7791F]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-xs font-semibold text-[#475569] uppercase tracking-wider">Avg Class Size</p>
+                                <p id="secStatAvgClass" class="text-xl font-bold font-display text-[#80530F]">0</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Toolbar & Filters -->
                     <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-                        <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
+                        <div class="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1">
                             <div class="relative flex-1">
                                 <svg class="w-4 h-4 text-[#475569] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                                 </svg>
-                                <input type="text" id="sectionSearchInput" aria-label="Search sections by name, year level, adviser, or subjects" placeholder="Search sections, year level, adviser, or assigned subjects..." class="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                <input type="text" id="sectionSearchInput" aria-label="Search sections by name, year level, adviser, or subjects" placeholder="Search sections, year level, adviser, or assigned subjects..." class="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                             </div>
-                            <select id="sectionYearFilter" aria-label="Filter sections by year level" class="px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                            <select id="sectionYearFilter" aria-label="Filter sections by year level" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                                 <option value="">All Year Levels</option>
                                 <option value="1st Year">1st Year</option>
                                 <option value="2nd Year">2nd Year</option>
@@ -232,15 +286,26 @@ require_once __DIR__ . '/includes/header.php';
                                 <option value="Grade 11">Grade 11</option>
                                 <option value="Grade 12">Grade 12</option>
                             </select>
+
+                            <!-- View Mode Switcher: Cards Grid vs Table Directory -->
+                            <div class="inline-flex items-center rounded-xl border border-[#D8DEE8] p-1 bg-[#F5F7FA] shrink-0" role="group" aria-label="Sections view mode">
+                                <button type="button" id="secViewGridBtn" onclick="App.setSectionViewMode('grid')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer bg-[#17243A] text-white shadow-xs" title="Cards Grid View">
+                                    <span class="mr-1">⊞</span> Grid
+                                </button>
+                                <button type="button" id="secViewTableBtn" onclick="App.setSectionViewMode('table')" class="px-2.5 py-1 text-xs font-semibold rounded-lg transition cursor-pointer text-[#475569] hover:text-[#17243A]" title="Directory Table View">
+                                    <span class="mr-1">☰</span> Table
+                                </button>
+                            </div>
                         </div>
+
                         <div class="flex items-center gap-2 shrink-0">
-                            <button type="button" onclick="App.openAssignSubjectTeacherModal()" class="admin-only inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer" title="Assign a specific subject to a teacher">
+                            <button type="button" onclick="App.openAssignSubjectTeacherModal()" class="admin-only inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer" title="Assign a specific subject to a teacher">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
                                 </svg>
-                                <span>Assign Subject to Teacher</span>
+                                <span>Assign Teaching Loads</span>
                             </button>
-                            <button type="button" onclick="App.openSectionModal()" class="admin-only inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer shrink-0">
+                            <button type="button" onclick="App.openSectionModal()" class="admin-only inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer shrink-0">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                                 </svg>
@@ -249,8 +314,31 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
                     </div>
 
-                    <div id="sectionsGridContainer" class="grid grid-cols-1 xl:grid-cols-2 gap-4 flex-1 content-start">
+                    <!-- Container 1: Clean Balanced Cards Grid -->
+                    <div id="sectionsGridContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4.5 flex-1 content-start">
                         <!-- Populated by JS -->
+                    </div>
+
+                    <!-- Container 2: Compact Table Directory -->
+                    <div id="sectionsTableContainer" class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex-col min-h-0 overflow-hidden hidden">
+                        <div class="flex-1 overflow-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse text-xs sm:text-sm" aria-label="Sections Directory Table">
+                                <thead class="sticky top-0 z-10">
+                                    <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                        <th scope="col" class="py-3 px-4 w-12 text-center">#</th>
+                                        <th scope="col" class="py-3 px-4">Section Name</th>
+                                        <th scope="col" class="py-3 px-4">Year Level</th>
+                                        <th scope="col" class="py-3 px-4">Adviser</th>
+                                        <th scope="col" class="py-3 px-4">Students Enrolled</th>
+                                        <th scope="col" class="py-3 px-4">Curriculum Load</th>
+                                        <th scope="col" class="py-3 px-4 text-right">Quick Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sectionsTableBody" class="divide-y divide-[#D8DEE8]/70">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </section>
 
@@ -293,79 +381,159 @@ require_once __DIR__ . '/includes/header.php';
 
                 <!-- ==================== VIEW 4: STUDENT DIRECTORY ==================== -->
                 <section id="view-students" class="view-panel <?= $requestedPage === 'students' ? '' : 'hidden' ?> space-y-4">
-                    <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col lg:flex-row lg:items-center justify-between gap-3 shrink-0">
-                        <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
-                            <div class="relative flex-1">
-                                <svg class="w-4 h-4 text-[#475569] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    <!-- Top Metric Cards / Quick Summary -->
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
+                        <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-xl bg-[#EBF1F8] text-[#17243A] flex items-center justify-center shrink-0 font-bold">
+                                <svg class="w-5 h-5 text-[#2C4870]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
                                 </svg>
-                                <input type="text" id="studentSearchInput" placeholder="Search by student name, ID number, or section..." class="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
                             </div>
-
-                            <select id="studentYearFilter" aria-label="Filter students by year level" class="px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
-                                <option value="">All Year Levels</option>
-                                <option value="1st Year">1st Year</option>
-                                <option value="2nd Year">2nd Year</option>
-                                <option value="3rd Year">3rd Year</option>
-                                <option value="4th Year">4th Year</option>
-                                <option value="Grade 7">Grade 7</option>
-                                <option value="Grade 8">Grade 8</option>
-                                <option value="Grade 9">Grade 9</option>
-                                <option value="Grade 10">Grade 10</option>
-                                <option value="Grade 11">Grade 11</option>
-                                <option value="Grade 12">Grade 12</option>
-                            </select>
-
-                            <select id="studentSectionFilter" aria-label="Filter students by section" class="px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
-                                <option value="">All Sections</option>
-                            </select>
-
-                            <select id="studentGenderFilter" aria-label="Filter students by gender" class="px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
-                                <option value="">All (Female &amp; Male)</option>
-                                <option value="Female">Female Only</option>
-                                <option value="Male">Male Only</option>
-                            </select>
-
-                            <button type="button" id="resetStudentFiltersBtn" onclick="App.resetStudentFilters()" class="hidden px-3.5 py-2.5 text-xs font-semibold text-[#475569] hover:text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8]/60 rounded-xl transition cursor-pointer">
-                                Reset
-                            </button>
+                            <div>
+                                <p class="text-xs font-semibold text-[#475569] uppercase tracking-wider">Total Enrolled</p>
+                                <p id="studentStatTotal" class="text-xl font-bold font-display text-[#17243A]">0</p>
+                            </div>
                         </div>
 
-                        <div class="flex flex-wrap items-center gap-2 shrink-0 can-add-student-only">
-                            <button type="button" onclick="App.openStudentModal(null, null, 'bulk')" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#5276A7] hover:bg-[#3E5F8A] shadow-2xs transition cursor-pointer">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+                        <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-xl bg-[#F5DFEB] text-[#842D60] flex items-center justify-center shrink-0 font-bold text-lg">
+                                &#9792;
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-1.5">
+                                    <p class="text-xs font-semibold text-[#475569] uppercase tracking-wider">Female Students</p>
+                                    <span id="studentStatFemalePct" class="px-1.5 py-0.2 rounded text-[11px] font-bold bg-[#F5DFEB] text-[#842D60]">0%</span>
+                                </div>
+                                <p id="studentStatFemale" class="text-xl font-bold font-display text-[#842D60]">0</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-xl bg-[#EBF1F8] text-[#2C4870] flex items-center justify-center shrink-0 font-bold text-lg">
+                                &#9794;
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-1.5">
+                                    <p class="text-xs font-semibold text-[#475569] uppercase tracking-wider">Male Students</p>
+                                    <span id="studentStatMalePct" class="px-1.5 py-0.2 rounded text-[11px] font-bold bg-[#EBF1F8] text-[#2C4870]">0%</span>
+                                </div>
+                                <p id="studentStatMale" class="text-xl font-bold font-display text-[#2C4870]">0</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                            <div class="w-11 h-11 rounded-xl bg-[#D5F0EA] text-[#0F766E] flex items-center justify-center shrink-0 font-bold">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
                                 </svg>
-                                <span>Bulk Add (1 per Line)</span>
-                            </button>
-                            <button type="button" onclick="App.openStudentModal()" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
-                                </svg>
-                                <span>Add New Student</span>
-                            </button>
+                            </div>
+                            <div>
+                                <p class="text-xs font-semibold text-[#475569] uppercase tracking-wider">Active Sections</p>
+                                <p id="studentStatSections" class="text-xl font-bold font-display text-[#0F766E]">0</p>
+                            </div>
                         </div>
                     </div>
 
+                    <!-- Filter & Toolbar Bar -->
+                    <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs space-y-3 shrink-0">
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                            <div class="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1">
+                                <!-- Search -->
+                                <div class="relative flex-1">
+                                    <svg class="w-4 h-4 text-[#475569] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                    </svg>
+                                    <input type="text" id="studentSearchInput" placeholder="Search by student name, ID number, or section..." class="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                </div>
+
+                                <!-- Year Level Filter -->
+                                <select id="studentYearFilter" aria-label="Filter students by year level" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                    <option value="">All Year Levels</option>
+                                    <option value="1st Year">1st Year</option>
+                                    <option value="2nd Year">2nd Year</option>
+                                    <option value="3rd Year">3rd Year</option>
+                                    <option value="4th Year">4th Year</option>
+                                    <option value="Grade 7">Grade 7</option>
+                                    <option value="Grade 8">Grade 8</option>
+                                    <option value="Grade 9">Grade 9</option>
+                                    <option value="Grade 10">Grade 10</option>
+                                    <option value="Grade 11">Grade 11</option>
+                                    <option value="Grade 12">Grade 12</option>
+                                </select>
+
+                                <!-- Gender Filter Segmented Buttons -->
+                                <div class="inline-flex items-center rounded-xl border border-[#D8DEE8] p-1 bg-[#F5F7FA] shrink-0" role="group" aria-label="Filter by gender">
+                                    <button type="button" id="sgfBtnAll" onclick="App.setStudentGenderFilter('')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer bg-[#17243A] text-white shadow-xs">
+                                        All
+                                    </button>
+                                    <button type="button" id="sgfBtnFemale" onclick="App.setStudentGenderFilter('Female')" class="px-2.5 py-1 text-xs font-semibold rounded-lg transition cursor-pointer text-[#475569] hover:text-[#17243A]">
+                                        &#9792; Female
+                                    </button>
+                                    <button type="button" id="sgfBtnMale" onclick="App.setStudentGenderFilter('Male')" class="px-2.5 py-1 text-xs font-semibold rounded-lg transition cursor-pointer text-[#475569] hover:text-[#17243A]">
+                                        &#9794; Male
+                                    </button>
+                                </div>
+                                <select id="studentGenderFilter" class="hidden" aria-hidden="true">
+                                    <option value="">All</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Male">Male</option>
+                                </select>
+                                <select id="studentSectionFilter" class="hidden" aria-hidden="true">
+                                    <option value="">All Sections</option>
+                                </select>
+
+                                <button type="button" id="resetStudentFiltersBtn" onclick="App.resetStudentFilters()" class="hidden px-3 py-2 text-xs font-semibold text-[#475569] hover:text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8]/60 rounded-xl transition cursor-pointer shrink-0">
+                                    Reset
+                                </button>
+                            </div>
+
+                            <div class="flex flex-wrap items-center gap-2 shrink-0 can-add-student-only">
+                                <button type="button" onclick="App.openStudentModal(null, null, 'bulk')" class="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#5276A7] hover:bg-[#3E5F8A] shadow-2xs transition cursor-pointer">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+                                    </svg>
+                                    <span>Bulk Add</span>
+                                </button>
+                                <button type="button" onclick="App.openStudentModal()" class="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
+                                    </svg>
+                                    <span>Add New Student</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Section Switcher Pill Bar -->
+                        <div class="pt-2 border-t border-[#D8DEE8]/70 flex items-center gap-2 overflow-x-auto custom-scrollbar" id="studentSectionPillsBar">
+                            <!-- Populated dynamically by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Clean Structured Student Directory Table -->
                     <div class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden">
                         <div class="flex-1 overflow-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse" aria-label="Data Table">
+                            <table class="w-full text-left border-collapse text-xs sm:text-sm" aria-label="Student Directory Table">
                                 <thead class="sticky top-0 z-10">
                                     <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
-                                        <th scope="col" class="py-3.5 px-4">Student ID</th>
-                                        <th scope="col" class="py-3.5 px-4">Full Name</th>
-                                        <th scope="col" class="py-3.5 px-4">Gender</th>
-                                        <th scope="col" class="py-3.5 px-4">Year Level</th>
-                                        <th scope="col" class="py-3.5 px-4">Section</th>
-                                        <th scope="col" class="py-3.5 px-4">Enrolled Subjects (From Section)</th>
-                                        <th scope="col" class="py-3.5 px-4">Status</th>
-                                        <th scope="col" class="py-3.5 px-4 text-right">Actions</th>
+                                        <th scope="col" class="py-3 px-3.5 w-12 text-center">#</th>
+                                        <th scope="col" class="py-3 px-3.5">Student ID</th>
+                                        <th scope="col" class="py-3 px-3.5">Student Name</th>
+                                        <th scope="col" class="py-3 px-3.5">Gender</th>
+                                        <th scope="col" class="py-3 px-3.5">Section &amp; Level</th>
+                                        <th scope="col" class="py-3 px-3.5">Curriculum / Subjects</th>
+                                        <th scope="col" class="py-3 px-3.5">Status</th>
+                                        <th scope="col" class="py-3 px-3.5 text-right">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody id="studentsTableBody" class="divide-y divide-[#D8DEE8]/70 text-sm">
+                                <tbody id="studentsTableBody" class="divide-y divide-[#D8DEE8]/70">
                                     <!-- Populated by JS -->
                                 </tbody>
                             </table>
+                        </div>
+
+                        <!-- Pagination Footer -->
+                        <div id="studentPaginationContainer" class="px-4 py-3 bg-[#F5F7FA] border-t border-[#D8DEE8] flex flex-wrap items-center justify-between gap-3 text-xs text-[#475569] shrink-0">
+                            <!-- Populated dynamically by JS -->
                         </div>
                     </div>
                 </section>
@@ -452,6 +620,13 @@ require_once __DIR__ . '/includes/header.php';
                                     <option value="Male">Male Only</option>
                                 </select>
 
+                                <!-- Missing Grades Counter Badge & Jump Button -->
+                                <button type="button" id="jumpToNextEmptyBtn" onclick="App.jumpToNextEmptyGradeCell()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-[#0F766E] hover:bg-[#0c5f58] shadow-2xs transition cursor-pointer" title="Find and jump directly to the next missing grade cell (Shortcut: Alt+N or Ctrl+Enter)">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                    <span>Next Missing</span>
+                                    <span id="gradingMissingCountBadge" class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/25 text-white font-mono">0</span>
+                                </button>
+
                                 <div class="inline-flex items-center gap-1 bg-[#F5F7FA] px-2.5 py-1.5 rounded-xl border border-[#D8DEE8] text-xs">
                                     <span class="text-[#475569] font-semibold mr-1">Fill Empty:</span>
                                     <button type="button" onclick="App.quickFillEmptyGrades(85)" class="px-2 py-0.5 rounded-md bg-white hover:bg-[#EBF1F8] text-[#17243A] font-semibold border border-[#D8DEE8] transition cursor-pointer">85</button>
@@ -470,15 +645,75 @@ require_once __DIR__ . '/includes/header.php';
                         <!-- Active Formula & Keyboard Hint Banner (Midnight Navy #17243A) -->
                         <div id="gradingLockNoticeBanner" class="hidden rounded-xl p-3 border text-xs flex flex-wrap items-center justify-between gap-2"></div>
 
-                        <div id="gradingFormulaBanner" class="rounded-xl bg-[#17243A] text-slate-200 px-4 py-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2 text-xs">
-                            <div class="flex items-center gap-2 flex-wrap">
-                                <span class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider bg-[#5276A7]/30 text-[#B8CCE6] border border-[#5276A7]/40">Live Formula</span>
-                                <code id="gradingFormulaCode" class="text-[#D5F0EA] font-mono text-xs sm:text-sm font-semibold">(((E21*4)+(F21*4)+(G21*4)+(H21*4)+(I21*4)+(J21*3)+(K21*1)+(L21*4))/28)</code>
+                        <!-- Interactive Active Student Guidance Strip & Speed Bar -->
+                        <div id="activeGradingGuideStrip" class="rounded-2xl bg-gradient-to-r from-[#17243A] via-[#1E2E48] to-[#17243A] border border-[#2C4870] shadow-sm text-white p-3.5 transition-all">
+                            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                                <!-- Student & Subject Details -->
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div id="activeGuideAvatar" class="w-10 h-10 rounded-xl bg-[#5276A7]/30 border border-[#5276A7]/50 flex items-center justify-center font-bold text-sm text-[#D5F0EA] shrink-0">
+                                        <svg class="w-5 h-5 text-[#B8CCE6]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <h4 id="activeGuideStudentName" class="font-display font-bold text-sm sm:text-base text-white truncate">Fast Grade Entry Assistant</h4>
+                                            <span id="activeGuideStudentMeta" class="text-xs text-slate-300">Click any cell or press Enter to begin</span>
+                                            <span id="activeGuideSubjectBadge" class="hidden px-2 py-0.5 rounded-lg text-xs font-semibold bg-[#5276A7]/40 text-[#D5F0EA] border border-[#5276A7]/60"></span>
+                                        </div>
+                                        <div class="flex items-center gap-2.5 mt-1 flex-wrap text-xs text-slate-300">
+                                            <span id="activeGuideGradeStatus" class="inline-flex items-center gap-1 font-semibold text-slate-200">
+                                                <span>⌨️ Navigation: <kbd class="px-1.5 py-0.5 rounded bg-black/30 font-mono text-white text-[11px]">Enter</kbd> Down &bull; <kbd class="px-1.5 py-0.5 rounded bg-black/30 font-mono text-white text-[11px]">Tab</kbd> Next Subj</span>
+                                            </span>
+                                            <span class="text-slate-500">&bull;</span>
+                                            <span id="activeGuideStanding" class="text-slate-300">Weighted averages calculate live</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Quick Presets & Guidance Controls on Active Student -->
+                                <div class="flex flex-wrap items-center gap-2 shrink-0">
+                                    <!-- Apply Preset to Active Cell & Move Down -->
+                                    <div class="inline-flex items-center gap-1 bg-white/10 px-2.5 py-1.5 rounded-xl border border-white/15 text-xs">
+                                        <span class="text-slate-300 text-[11px] font-semibold mr-1">Apply &amp; &darr;:</span>
+                                        <button type="button" onclick="App.applyPresetToActiveCell(85)" class="px-2 py-0.5 rounded-lg bg-white/15 hover:bg-white text-white hover:text-[#17243A] font-bold text-xs transition cursor-pointer" title="Apply 85 to current student and move to next">85</button>
+                                        <button type="button" onclick="App.applyPresetToActiveCell(88)" class="px-2 py-0.5 rounded-lg bg-white/15 hover:bg-white text-white hover:text-[#17243A] font-bold text-xs transition cursor-pointer" title="Apply 88 to current student and move to next">88</button>
+                                        <button type="button" onclick="App.applyPresetToActiveCell(90)" class="px-2 py-0.5 rounded-lg bg-[#0F766E] hover:bg-[#D5F0EA] text-white hover:text-[#0F766E] font-bold text-xs transition cursor-pointer" title="Apply 90 (Honors) to current student and move to next">90</button>
+                                        <button type="button" onclick="App.applyPresetToActiveCell(92)" class="px-2 py-0.5 rounded-lg bg-[#0F766E] hover:bg-[#D5F0EA] text-white hover:text-[#0F766E] font-bold text-xs transition cursor-pointer" title="Apply 92 to current student and move to next">92</button>
+                                        <button type="button" onclick="App.applyPresetToActiveCell(95)" class="px-2 py-0.5 rounded-lg bg-[#0F766E] hover:bg-[#D5F0EA] text-white hover:text-[#0F766E] font-bold text-xs transition cursor-pointer" title="Apply 95 to current student and move to next">95</button>
+                                    </div>
+
+                                    <!-- Next Missing Jump Button -->
+                                    <button type="button" onclick="App.jumpToNextEmptyGradeCell()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-[#0F766E] hover:bg-[#13978d] transition cursor-pointer shadow-2xs" title="Jump directly to next unfilled student cell (Shortcut: Alt+N or Ctrl+Enter)">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                        <span>Next Empty</span>
+                                        <span id="activeGuideMissingPill" class="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-black/30 font-mono">0</span>
+                                    </button>
+
+                                    <!-- Keyboard Navigation Hints Pill -->
+                                    <div class="hidden xl:inline-flex items-center gap-1 text-[11px] text-slate-300 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/10 select-none">
+                                        <kbd class="px-1 py-0.5 bg-black/30 rounded text-[10px] font-mono text-white">Enter</kbd> <span>&darr;</span>
+                                        <span class="mx-0.5 opacity-40">|</span>
+                                        <kbd class="px-1 py-0.5 bg-black/30 rounded text-[10px] font-mono text-white">Shift+Enter</kbd> <span>&uarr;</span>
+                                        <span class="mx-0.5 opacity-40">|</span>
+                                        <kbd class="px-1 py-0.5 bg-black/30 rounded text-[10px] font-mono text-white">Tab</kbd> <span>&rarr;</span>
+                                    </div>
+
+                                    <!-- Toggle Mathematical Formula -->
+                                    <button type="button" onclick="App.toggleGradingFormulaView()" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition cursor-pointer" title="View/hide raw Excel weighted formula">
+                                        <span class="font-mono text-xs">fx</span>
+                                        <span id="gradingFormulaToggleText">Formula</span>
+                                    </button>
+                                </div>
                             </div>
-                            <div class="flex items-center gap-3 text-slate-300 text-xs">
-                                <span id="gradingMetaSummary">Select a cell to inspect student formula</span>
-                                <span>&bull;</span>
-                                <span class="text-[#FFF0D1] font-semibold">Use <kbd class="px-1.5 py-0.5 bg-[#243752] rounded border border-[#5276A7]/40 text-white">Enter</kbd> or <kbd class="px-1.5 py-0.5 bg-[#243752] rounded border border-[#5276A7]/40 text-white">&uarr;&darr;&larr;&rarr;</kbd> to navigate</span>
+
+                            <!-- Collapsible Formula Accordion (Preserves DepEd/CHED formula audit) -->
+                            <div id="gradingFormulaAccordion" class="hidden mt-3 pt-3 border-t border-white/15 flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
+                                <div class="flex items-center gap-2 flex-wrap min-w-0">
+                                    <span class="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-[#5276A7]/40 text-[#D5F0EA] border border-[#5276A7]/50">Excel Formula</span>
+                                    <code id="gradingFormulaCode" class="text-[#D5F0EA] font-mono text-xs font-semibold break-all">(((E21*4)+(F21*4)+(G21*4)+(H21*4)+(I21*4)+(J21*3)+(K21*1)+(L21*4))/28)</code>
+                                </div>
+                                <div class="text-xs text-slate-300 shrink-0">
+                                    <span id="gradingMetaSummary">Active Student Computation</span>
+                                </div>
                             </div>
                         </div>
                     </div>
