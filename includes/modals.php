@@ -725,5 +725,83 @@
     </div>
 </div>
 
+<!-- ==================== MODAL 9: ASSIGN SUBJECT TO TEACHER ==================== -->
+<div id="assignSubjectTeacherModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="astModalTitle">
+    <div class="min-h-screen px-4 text-center flex items-center justify-center">
+        <div class="fixed inset-0 bg-[#17243A]/60 backdrop-blur-xs transition-opacity" onclick="App.closeModal('assignSubjectTeacherModal')"></div>
+
+        <div class="inline-block w-full max-w-lg my-8 text-left align-middle transition-all transform bg-white shadow-2xl rounded-2xl z-10 overflow-hidden border border-[#D8DEE8]">
+            <div class="px-6 py-4 bg-[#17243A] text-white flex items-center justify-between">
+                <div>
+                    <h3 id="astModalTitle" class="font-display font-bold text-lg text-white">Assign Subject to Teacher</h3>
+                    <p class="text-xs sm:text-sm text-slate-300 mt-0.5">Link a specific section subject load to a registered teacher account</p>
+                </div>
+                <button type="button" onclick="App.closeModal('assignSubjectTeacherModal')" class="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-[#243752] transition cursor-pointer" aria-label="Close dialog">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <form id="assignSubjectTeacherForm" onsubmit="App.handleAssignSubjectTeacherSubmit(event)" class="p-6 space-y-4">
+                <!-- Select Teacher -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label for="astTeacherSelect" class="block text-sm font-semibold text-[#17243A]">
+                            Teacher Account <span class="text-[#9B3F72]">*</span>
+                        </label>
+                        <button type="button" onclick="App.openTeacherModalFromAssign()" class="text-xs font-semibold text-[#5276A7] hover:text-[#17243A] cursor-pointer">
+                            + New Teacher Account
+                        </button>
+                    </div>
+                    <select id="astTeacherSelect" required class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white font-medium text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                        <option value="">-- Select Teacher --</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <!-- Select Section -->
+                <div>
+                    <label for="astSectionSelect" class="block text-sm font-semibold text-[#17243A] mb-1.5">
+                        Section <span class="text-[#9B3F72]">*</span>
+                    </label>
+                    <select id="astSectionSelect" required onchange="App.onAstSectionChange(this.value)" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white font-medium text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                        <option value="">-- Select Section --</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <!-- Select Subject -->
+                <div>
+                    <label for="astSubjectSelect" class="block text-sm font-semibold text-[#17243A] mb-1.5">
+                        Subject <span class="text-[#9B3F72]">*</span>
+                    </label>
+                    <select id="astSubjectSelect" required onchange="App.onAstSubjectChange(this.value)" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] bg-white font-medium text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                        <option value="">-- Select Subject --</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <!-- Class Schedule -->
+                <div>
+                    <label for="astScheduleInput" class="block text-sm font-semibold text-[#17243A] mb-1.5">
+                        Class Schedule <span class="text-[#475569] font-normal">(Optional)</span>
+                    </label>
+                    <input type="text" id="astScheduleInput" placeholder="e.g. MWF 8:00 AM – 10:00 AM" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                </div>
+
+                <div class="pt-4 border-t border-[#D8DEE8] flex items-center justify-end gap-2.5">
+                    <button type="button" onclick="App.closeModal('assignSubjectTeacherModal')" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-[#475569] hover:bg-[#F5F7FA] transition cursor-pointer">
+                        Cancel
+                    </button>
+                    <button type="submit" id="astSubmitBtn" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer">
+                        Assign Subject to Teacher
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Toast Notification Container -->
 <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none no-print"></div>

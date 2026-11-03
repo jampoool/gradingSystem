@@ -215,7 +215,7 @@ function fetchSystemState(PDO $pdo): array
         $gradesByStudent[$stId][$subId][$qtr] = (float)$grow['grade'];
     }
 
-    // 6. Teacher scoping: keep only sections where this teacher handles at least one subject
+    // 6. Teacher scoping: keep only sections and subjects handled by this teacher
     $teachers = [];
     if (!$viewerIsAdmin) {
         $handledSectionIds = [];
@@ -226,22 +226,69 @@ function fetchSystemState(PDO $pdo): array
                 $handledSubjectIds[(int)$arow['subject_id']] = true;
             }
         }
+
+        // Keep only sections where this teacher teaches at least one subject
         $sections = array_values(array_filter($sections, fn($s) => isset($handledSectionIds[$s['id']])));
+
+        // Filter assigned subjects inside each section so the teacher ONLY sees subjects she/he handles
+        foreach ($sections as &$sec) {
+            $sec['assigned_subjects'] = array_values(array_filter(
+                $sec['assigned_subjects'] ?? [],
+                fn($as) => (int)($as['teacher_id'] ?? 0) === $viewerId
+            ));
+            $sec['subject_count'] = count($sec['assigned_subjects']);
+            $secTotalUnits = 0.0;
+            foreach ($sec['assigned_subjects'] as $asub) {
+                $secTotalUnits += (float)$asub['units'];
+            }
+            $sec['total_units'] = $secTotalUnits;
+        }
+        unset($sec);
+
+        // Keep only catalog subjects handled by this teacher
         $subjects = array_values(array_filter($subjects, fn($s) => isset($handledSubjectIds[$s['id']])));
         foreach ($subjects as &$tsub) {
             $tsub['assigned_sections'] = array_values(array_filter(
-                $tsub['assigned_sections'],
-                fn($as) => isset($handledSectionIds[$as['section_id']])
+                $tsub['assigned_sections'] ?? [],
+                fn($as) => isset($handledSectionIds[$as['section_id']]) && (int)($as['teacher_id'] ?? 0) === $viewerId
             ));
+            $tsub['section_count'] = count($tsub['assigned_sections']);
         }
         unset($tsub);
+
+        // Students in handled sections
         $students = array_values(array_filter($students, fn($st) => isset($handledSectionIds[(int)$st['section_id']])));
-        $assignments = array_values(array_filter($assignments, fn($a) => isset($handledSectionIds[(int)$a['section_id']])));
+
+        // Keep only assignments belonging to this teacher
+        $assignments = array_values(array_filter($assignments, fn($a) => (int)($a['teacher_id'] ?? 0) === $viewerId));
+
         $visibleStudentIds = [];
         foreach ($students as $vst) {
             $visibleStudentIds[(int)$vst['id']] = true;
         }
-        $allGradesRows = array_values(array_filter($allGradesRows, fn($g) => isset($visibleStudentIds[(int)$g['student_id']])));
+
+        // Grades only for this teacher's handled subjects
+        $allGradesRows = array_values(array_filter(
+            $allGradesRows,
+            fn($g) => isset($visibleStudentIds[(int)$g['student_id']]) && isset($handledSubjectIds[(int)$g['subject_id']])
+        ));
+
+        // Rebuild gradesByStudent so teacher state only contains grades for their handled subjects
+        $gradesByStudent = [];
+        foreach ($allGradesRows as $grow) {
+            $stId = (int)$grow['student_id'];
+            $subId = (int)$grow['subject_id'];
+            $qtr = $grow['quarter'];
+            $gradesByStudent[$stId][$subId][$qtr] = (float)$grow['grade'];
+        }
+
+        // Scope sectionSubjectsMap so student assigned_subjects only reflect this teacher's handled subjects
+        foreach ($sectionSubjectsMap as $sId => $sSubs) {
+            $sectionSubjectsMap[$sId] = array_values(array_filter(
+                $sSubs,
+                fn($as) => (int)($as['teacher_id'] ?? 0) === $viewerId
+            ));
+        }
     } else {
         // Admin: list of teacher accounts with their subject loads
         $teacherRows = $pdo->query("
@@ -274,8 +321,10 @@ function fetchSystemState(PDO $pdo): array
                 'is_active'     => (int)$trow['is_active'] === 1,
                 'last_login_at' => $trow['last_login_at'],
                 'load_count'    => (int)$trow['load_count'],
+                'teaching_load_count' => (int)$trow['load_count'],
                 'section_count' => (int)$trow['section_count'],
                 'loads'         => $loadsByTeacher[(int)$trow['id']] ?? [],
+                'teaching_loads'=> $loadsByTeacher[(int)$trow['id']] ?? [],
             ];
         }
     }
@@ -322,6 +371,9 @@ function fetchSystemState(PDO $pdo): array
         LEFT JOIN users u_req ON u_req.id = gl.unlock_requested_by
     ");
     $locksRows = $locksStmt ? $locksStmt->fetchAll() : [];
+    if (!$viewerIsAdmin) {
+        $locksRows = array_filter($locksRows, fn($lr) => isset($handledSectionIds[(int)$lr['section_id']]) && isset($handledSubjectIds[(int)$lr['subject_id']]));
+    }
     $gradeLocks = [];
     $pendingUnlockRequests = [];
     foreach ($locksRows as $lrow) {
@@ -814,6 +866,64 @@ try {
             $stmt = $pdo->prepare("DELETE FROM section_subjects WHERE section_id = ? AND subject_id = ?");
             $stmt->execute([$sectionId, $subjectId]);
             respond(true, 'Subject unassigned from section.', fetchSystemState($pdo));
+            break;
+
+        case 'assign_subject_teacher':
+            if ($authUser['role'] !== 'admin') {
+                respond(false, 'Only administrators can assign subjects to teachers.', [], 403);
+            }
+            $sectionId = (int)($input['section_id'] ?? 0);
+            $subjectId = (int)($input['subject_id'] ?? 0);
+            $teacherId = isset($input['teacher_id']) && (int)$input['teacher_id'] > 0 ? (int)$input['teacher_id'] : null;
+            $schedule = isset($input['schedule']) ? trim((string)$input['schedule']) : null;
+            $customInstructor = isset($input['instructor']) ? trim((string)$input['instructor']) : null;
+
+            if ($sectionId <= 0 || $subjectId <= 0) {
+                respond(false, 'Please specify both a valid section and subject.', [], 422);
+            }
+
+            $secStmt = $pdo->prepare("SELECT section_name FROM sections WHERE id = ?");
+            $secStmt->execute([$sectionId]);
+            $secRow = $secStmt->fetch();
+            if (!$secRow) {
+                respond(false, 'Section not found.', [], 404);
+            }
+
+            $subStmt = $pdo->prepare("SELECT subject_code, subject_name FROM subjects WHERE id = ?");
+            $subStmt->execute([$subjectId]);
+            $subRow = $subStmt->fetch();
+            if (!$subRow) {
+                respond(false, 'Subject not found.', [], 404);
+            }
+
+            $instructorName = $customInstructor;
+            if ($teacherId !== null) {
+                $tStmt = $pdo->prepare("SELECT full_name FROM users WHERE id = ? AND role = 'teacher'");
+                $tStmt->execute([$teacherId]);
+                $tRow = $tStmt->fetch();
+                if (!$tRow) {
+                    respond(false, 'Selected teacher was not found.', [], 422);
+                }
+                $instructorName = $tRow['full_name'];
+            }
+
+            // Check if section_subject exists
+            $ssStmt = $pdo->prepare("SELECT id, schedule FROM section_subjects WHERE section_id = ? AND subject_id = ?");
+            $ssStmt->execute([$sectionId, $subjectId]);
+            $existingSS = $ssStmt->fetch();
+
+            if ($existingSS) {
+                $finalSchedule = $schedule !== null && $schedule !== '' ? $schedule : $existingSS['schedule'];
+                $upd = $pdo->prepare("UPDATE section_subjects SET teacher_id = ?, instructor = ?, schedule = ? WHERE id = ?");
+                $upd->execute([$teacherId, $instructorName, $finalSchedule, $existingSS['id']]);
+            } else {
+                $maxOrder = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM section_subjects WHERE section_id = {$sectionId}")->fetchColumn();
+                $ins = $pdo->prepare("INSERT INTO section_subjects (section_id, subject_id, schedule, instructor, teacher_id, sort_order) VALUES (?, ?, ?, ?, ?, ?)");
+                $ins->execute([$sectionId, $subjectId, $schedule, $instructorName, $teacherId, $maxOrder]);
+            }
+
+            $assignNote = $instructorName ? "assigned to {$instructorName}" : "unassigned";
+            respond(true, "Subject {$subRow['subject_code']} in {$secRow['section_name']} is now {$assignNote}.", fetchSystemState($pdo));
             break;
 
         case 'save_student':
@@ -1391,12 +1501,14 @@ try {
 
             // Assign all 8 subjects (28 units total) to BSIT 1-A and BSIT 1-B
             $subjectCodes8 = ['SUBJ 101', 'SUBJ 102', 'SUBJ 103', 'SUBJ 104', 'SUBJ 105', 'SUBJ 106', 'SUBJ 107', 'SUBJ 108'];
-            // Demo teacher accounts (password: teacher123). Each teacher handles specific subject loads:
-            //   msantos → BSIT 1-A only | creyes → BSIT 1-A and BSIT 1-B | ecruz → BSIT 1-B only
+            // Real teacher accounts (password: teacher123)
             $demoTeachers = [
-                'msantos' => 'Prof. Maria Santos',
-                'creyes'  => 'Prof. Carlos Reyes',
-                'ecruz'   => 'Prof. Elena Cruz',
+                'jpdaguman'  => 'Jan Paul Daguman',
+                'kcortes'    => 'Kim Cortes',
+                'prabina'    => 'Peter Rabina',
+                'cmagbago'   => 'Casey Magbago',
+                'rggabule'   => 'RG Gabule',
+                'dantiquina' => 'Danica Antiquina',
             ];
             $teacherIns = $pdo->prepare("INSERT IGNORE INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, 'teacher')");
             $teacherIdMap = [];
@@ -1407,8 +1519,8 @@ try {
                 $teacherIdMap[$uname] = (int)$tFind->fetchColumn();
             }
             $loadPlan = [
-                'BSIT 1-A' => ['msantos', 'creyes'], // even-index subjects → first, odd-index → second
-                'BSIT 1-B' => ['creyes', 'ecruz'],
+                'BSIT 1-A' => ['jpdaguman', 'kcortes', 'prabina', 'cmagbago'],
+                'BSIT 1-B' => ['rggabule', 'dantiquina', 'jpdaguman', 'kcortes'],
             ];
 
             $assStmt = $pdo->prepare("
@@ -1419,9 +1531,10 @@ try {
             foreach (['BSIT 1-A', 'BSIT 1-B'] as $secNameSeed) {
                 if (isset($secMap[$secNameSeed])) {
                     $seedSecId = (int)$secMap[$secNameSeed]['id'];
+                    $teachersForSec = $loadPlan[$secNameSeed];
                     foreach ($subjectCodes8 as $idx => $code) {
                         if (isset($subMap[$code])) {
-                            $tUser = $loadPlan[$secNameSeed][$idx % 2];
+                            $tUser = $teachersForSec[$idx % count($teachersForSec)];
                             $inst = $demoTeachers[$tUser];
                             $sched = $secNameSeed === 'BSIT 1-A' ? 'MWF' : 'TTH';
                             $assStmt->execute([$seedSecId, $subMap[$code], $sched, $inst, $teacherIdMap[$tUser] ?: null]);

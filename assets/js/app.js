@@ -1338,6 +1338,7 @@ const App = (() => {
             const formulaStr = buildSectionFormulaString(sec.assigned_subjects, 21);
             const isFullWidthCard = filtered.length === 1 || (filtered.length % 2 === 1 && sIndex === filtered.length - 1);
 
+            const isTeacher = state.currentUser?.role === 'teacher';
             const subjectsListHtml = sec.assigned_subjects.length > 0
                 ? `<div class="grid grid-cols-1 ${isFullWidthCard ? 'lg:grid-cols-2' : ''} gap-2">
                     ${sec.assigned_subjects.map((sub, idx) => `
@@ -1349,19 +1350,27 @@ const App = (() => {
                                     <span class="text-sm font-semibold text-[#17243A] truncate">${escapeHtml(sub.subject_name)}</span>
                                     <span class="text-xs font-bold text-[#0F766E] bg-[#D5F0EA] px-2 py-0.5 rounded-md border border-[#99D8CC]">*${formatUnits(sub.units)}u</span>
                                 </div>
-                                ${(sub.schedule || sub.instructor) ? `
-                                    <div class="text-xs text-[#475569] mt-1 flex items-center gap-1.5">
-                                        ${sub.schedule ? `<span>${escapeHtml(sub.schedule)}</span>` : ''}
-                                        ${sub.schedule && sub.instructor ? `<span>&bull;</span>` : ''}
-                                        ${sub.instructor ? `<span>Teacher: ${escapeHtml(sub.instructor)}</span>` : ''}
-                                    </div>
-                                ` : ''}
+                                <div class="text-xs text-[#475569] mt-1 flex items-center gap-1.5 flex-wrap">
+                                    ${sub.schedule ? `<span class="font-mono text-slate-500">${escapeHtml(sub.schedule)}</span>` : ''}
+                                    ${sub.schedule ? `<span>&bull;</span>` : ''}
+                                    ${sub.teacher_id || sub.instructor ? `
+                                        <button type="button" onclick="${isTeacher ? '' : `App.openAssignSubjectTeacherModal(${sub.teacher_id || 'null'}, ${sec.id}, ${sub.subject_id})`}" class="inline-flex items-center gap-1 font-semibold text-[#0F766E] bg-[#D5F0EA] ${isTeacher ? '' : 'hover:bg-[#c2e8df] cursor-pointer'} px-2 py-0.5 rounded border border-[#99D8CC] transition" title="${isTeacher ? 'Assigned Instructor' : 'Click to change or re-assign teacher'}">
+                                            <span>👨‍🏫 ${escapeHtml(sub.instructor)}</span>
+                                            ${!isTeacher ? `<svg class="w-3 h-3 text-[#0F766E]/70" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>` : ''}
+                                        </button>
+                                    ` : `
+                                        <button type="button" onclick="App.openAssignSubjectTeacherModal(null, ${sec.id}, ${sub.subject_id})" class="admin-only inline-flex items-center gap-1 font-semibold text-[#80530F] bg-[#FFF0D1] hover:bg-[#ffe3ab] px-2 py-0.5 rounded border border-[#F0D296] transition cursor-pointer" title="Click to assign a teacher">
+                                            <span>⚠️ No Teacher Assigned</span>
+                                            <span class="underline font-bold">+ Assign</span>
+                                        </button>
+                                    `}
+                                </div>
                             </div>
                             <div class="flex items-center gap-1.5 shrink-0">
                                 <button type="button" onclick="App.openSectionGrading(${sec.id}, ${sub.subject_id})" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input grades for this subject">
                                     Input Grades
                                 </button>
-                                <button type="button" onclick="App.unassignSingleSubject(${sec.id}, ${sub.subject_id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove subject from this section">
+                                <button type="button" onclick="App.unassignSingleSubject(${sec.id}, ${sub.subject_id})" class="admin-only p-1.5 rounded-lg text-[#475569] hover:text-[#842D60] hover:bg-[#F5DFEB] transition cursor-pointer" title="Remove subject from this section">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                                     </svg>
@@ -1371,10 +1380,12 @@ const App = (() => {
                     `).join('')}
                    </div>`
                 : `<div class="rounded-xl border border-dashed border-[#D8DEE8] p-5 text-center bg-[#F5F7FA]/60">
-                        <p class="text-sm text-[#475569]">No subjects assigned to <strong class="text-[#17243A]">${escapeHtml(sec.section_name)}</strong> yet.</p>
-                        <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[#5276A7] hover:text-[#17243A] cursor-pointer">
-                            + Assign Subjects Now
-                        </button>
+                        <p class="text-sm text-[#475569]">${isTeacher ? 'No subjects handled by you in' : 'No subjects assigned to'} <strong class="text-[#17243A]">${escapeHtml(sec.section_name)}</strong> yet.</p>
+                        ${!isTeacher ? `
+                            <button type="button" onclick="App.openAssignSubjectsModal(${sec.id})" class="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-[#5276A7] hover:text-[#17243A] cursor-pointer">
+                                + Assign Subjects Now
+                            </button>
+                        ` : ''}
                    </div>`;
 
             return `
@@ -1392,11 +1403,11 @@ const App = (() => {
                                     ${sec.adviser ? `Adviser: <strong class="text-[#17243A]">${escapeHtml(sec.adviser)}</strong> &bull; ` : ''}
                                     <span>${sec.student_count} Student${sec.student_count === 1 ? '' : 's'} (<span class="text-[#842D60] font-semibold">&#9792; ${sec.female_count || 0} Female</span>, <span class="text-[#2C4870] font-semibold">&#9794; ${sec.male_count || 0} Male</span>)</span>
                                     &bull;
-                                    <span>${sec.subject_count} Subject${sec.subject_count === 1 ? '' : 's'} (Divisor: <strong class="text-[#17243A]">${formatUnits(sec.total_units)} units</strong>)</span>
+                                    <span>${isTeacher ? 'My Handled Subjects: ' : ''}${sec.subject_count} Subject${sec.subject_count === 1 ? '' : 's'} (${isTeacher ? 'Load: ' : 'Divisor: '}<strong class="text-[#17243A]">${formatUnits(sec.total_units)} units</strong>)</span>
                                 </p>
                             </div>
 
-                            <div class="flex items-center gap-1.5">
+                            <div class="admin-only flex items-center gap-1.5">
                                 <button type="button" onclick="App.openSectionModal(${sec.id})" class="p-2 rounded-xl text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit section details">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
@@ -1412,14 +1423,14 @@ const App = (() => {
 
                         <!-- Section Formula Preview -->
                         <div class="mt-3 px-3.5 py-2 rounded-xl bg-[#17243A] text-slate-200 text-xs flex items-center justify-between gap-2 overflow-x-auto">
-                            <span class="text-slate-300 shrink-0 font-medium">Weighted Ranking Formula:</span>
+                            <span class="text-slate-300 shrink-0 font-medium">${isTeacher ? 'My Handled Subjects Formula:' : 'Weighted Ranking Formula:'}</span>
                             <code class="text-[#D5F0EA] font-mono font-semibold truncate">${escapeHtml(formulaStr)}</code>
                         </div>
 
                         <div class="mt-3.5">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-xs font-bold uppercase tracking-wider text-[#475569]">Assigned Subjects (${sec.subject_count})</span>
-                                <div class="flex items-center gap-2">
+                                <span class="text-xs font-bold uppercase tracking-wider text-[#475569]">${isTeacher ? 'My Handled Subjects' : 'Assigned Subjects'} (${sec.subject_count})</span>
+                                <div class="admin-only flex items-center gap-2">
                                     ${sec.assigned_subjects.length > 1 ? `
                                         <button type="button" onclick="App.openReorderSubjectsModal(${sec.id})" class="text-xs font-semibold text-[#2C4870] hover:text-[#17243A] hover:underline cursor-pointer flex items-center gap-1">
                                             <span>⇅ Order</span>
@@ -1709,16 +1720,26 @@ const App = (() => {
     }
 
     // ==================== VIEW 5: TEACHER GRADE INPUT PER SECTION ====================
-    function openSectionGrading(sectionId, subjectId = 'ALL', quarter = null) {
+    function openSectionGrading(sectionId, subjectId = null, quarter = null) {
         state.gradingSectionId = Number(sectionId);
-        state.gradingSubjectId = subjectId ? String(subjectId) : 'ALL';
+        const isTeacher = state.currentUser?.role === 'teacher';
+        const sec = state.sections.find(s => s.id === state.gradingSectionId);
+        const assignedSubs = sec?.assigned_subjects || [];
+
+        if (subjectId && subjectId !== 'ALL') {
+            state.gradingSubjectId = String(subjectId);
+        } else if (isTeacher && assignedSubs.length > 0) {
+            state.gradingSubjectId = String(assignedSubs[0].subject_id);
+        } else {
+            state.gradingSubjectId = isTeacher && assignedSubs.length > 0 ? String(assignedSubs[0].subject_id) : 'ALL';
+        }
         if (quarter) state.gradingQuarter = quarter;
         switchView('grading', false);
         updateBrowserUrl({
             page: 'grading',
             section_id: state.gradingSectionId,
             quarter: state.gradingQuarter,
-            subject_id: state.gradingSubjectId !== 'ALL' ? state.gradingSubjectId : null
+            subject_id: state.gradingSubjectId !== 'ALL' && state.gradingSubjectId ? state.gradingSubjectId : null
         });
         renderGradingView();
     }
@@ -1823,20 +1844,34 @@ const App = (() => {
         state.gradingSectionId = activeSection.id;
         qtrSelect.value = state.gradingQuarter;
 
+        const isTeacher = state.currentUser?.role === 'teacher';
         const assignedSubjects = activeSection.assigned_subjects || [];
-        if (state.gradingSubjectId !== 'ALL' && !assignedSubjects.some(s => String(s.subject_id) === String(state.gradingSubjectId))) {
-            state.gradingSubjectId = 'ALL';
+
+        if (isTeacher) {
+            if (!assignedSubjects.some(s => String(s.subject_id) === String(state.gradingSubjectId))) {
+                state.gradingSubjectId = assignedSubjects[0] ? String(assignedSubjects[0].subject_id) : '';
+            }
+        } else {
+            if (state.gradingSubjectId !== 'ALL' && !assignedSubjects.some(s => String(s.subject_id) === String(state.gradingSubjectId))) {
+                state.gradingSubjectId = 'ALL';
+            }
         }
 
-        const subjectOptions = [
-            `<option value="ALL" ${state.gradingSubjectId === 'ALL' ? 'selected' : ''}>All Subjects — Master Spreadsheet (${assignedSubjects.length})</option>`,
-            ...assignedSubjects.map((sub, idx) => `
+        const subjectOptions = isTeacher
+            ? assignedSubjects.map((sub, idx) => `
                 <option value="${sub.subject_id}" ${String(state.gradingSubjectId) === String(sub.subject_id) ? 'selected' : ''}>
-                    Col ${excelColLetter(idx)}: ${escapeHtml(sub.subject_code)} — ${escapeHtml(sub.subject_name)} (*${formatUnits(sub.units)}u)
+                    ${escapeHtml(sub.subject_code)} — ${escapeHtml(sub.subject_name)} (*${formatUnits(sub.units)}u)
                 </option>
-            `),
-        ];
-        subSelect.innerHTML = subjectOptions.join('');
+            `)
+            : [
+                `<option value="ALL" ${state.gradingSubjectId === 'ALL' ? 'selected' : ''}>All Subjects — Master Spreadsheet (${assignedSubjects.length})</option>`,
+                ...assignedSubjects.map((sub, idx) => `
+                    <option value="${sub.subject_id}" ${String(state.gradingSubjectId) === String(sub.subject_id) ? 'selected' : ''}>
+                        Col ${excelColLetter(idx)}: ${escapeHtml(sub.subject_code)} — ${escapeHtml(sub.subject_name)} (*${formatUnits(sub.units)}u)
+                    </option>
+                `),
+            ];
+        subSelect.innerHTML = subjectOptions.length > 0 ? subjectOptions.join('') : `<option value="">No subjects handled</option>`;
 
         const standings = computeSectionStandings(activeSection.id, state.gradingQuarter);
         const totalStudentsCount = standings ? standings.rows.length : 0;
@@ -1866,7 +1901,7 @@ const App = (() => {
                                 ? 'bg-[#5276A7] text-white border-[#5276A7] shadow-2xs'
                                 : 'bg-[#F5F7FA] text-[#17243A] border-[#D8DEE8] hover:bg-[#EBF1F8]'
                         }">
-                        <span class="font-mono text-xs ${isSelected ? 'text-white/80' : 'text-[#475569]'}">${col}:</span>
+                        <span class="font-mono text-xs ${isSelected ? 'text-white/80' : 'text-[#475569]'}">${isTeacher ? '' : col + ':'}</span>
                         <span>${escapeHtml(sub.subject_code)}</span>
                         <span class="text-xs ${isSelected ? 'text-[#D5F0EA]' : 'text-[#0F766E]'}">*${formatUnits(sub.units)}u</span>
                         <span class="px-2 py-0.5 rounded-full text-xs ${
@@ -1880,21 +1915,25 @@ const App = (() => {
                 `;
             });
 
-            const isAllSelected = state.gradingSubjectId === 'ALL';
-            tabsContainer.innerHTML = [
-                `<button type="button" onclick="App.setGradingSubjectTab('ALL')"
-                    class="flex-1 min-w-fit inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition cursor-pointer ${
-                        isAllSelected
-                            ? 'bg-[#17243A] text-white border-[#17243A] shadow-2xs'
-                            : 'bg-white text-[#17243A] border-[#D8DEE8] hover:bg-[#F5F7FA]'
-                    }">
-                    <span>All Subjects Sheet</span>
-                    <span class="px-2 py-0.5 rounded-full text-xs ${isAllSelected ? 'bg-[#D5F0EA] text-[#0F766E]' : 'bg-[#F5F7FA] text-[#475569]'}">
-                        ${filledCells}/${totalCells}
-                    </span>
-                </button>`,
-                ...subTabBtns,
-            ].join('');
+            if (isTeacher) {
+                tabsContainer.innerHTML = subTabBtns.join('');
+            } else {
+                const isAllSelected = state.gradingSubjectId === 'ALL';
+                tabsContainer.innerHTML = [
+                    `<button type="button" onclick="App.setGradingSubjectTab('ALL')"
+                        class="flex-1 min-w-fit inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition cursor-pointer ${
+                            isAllSelected
+                                ? 'bg-[#17243A] text-white border-[#17243A] shadow-2xs'
+                                : 'bg-white text-[#17243A] border-[#D8DEE8] hover:bg-[#F5F7FA]'
+                        }">
+                        <span>All Subjects Sheet</span>
+                        <span class="px-2 py-0.5 rounded-full text-xs ${isAllSelected ? 'bg-[#D5F0EA] text-[#0F766E]' : 'bg-[#F5F7FA] text-[#475569]'}">
+                            ${filledCells}/${totalCells}
+                        </span>
+                    </button>`,
+                    ...subTabBtns,
+                ].join('');
+            }
         }
 
         const formulaStr = buildSectionFormulaString(assignedSubjects, 21);
@@ -1905,11 +1944,13 @@ const App = (() => {
         if (assignedSubjects.length === 0) {
             container.innerHTML = `
                 <div class="flex-1 flex flex-col items-center justify-center p-12 text-center">
-                    <p class="text-base font-display font-bold text-[#17243A]">No Subjects Assigned to ${escapeHtml(activeSection.section_name)}</p>
-                    <p class="text-sm text-[#475569] mt-1">Assign subjects to this section first so teachers can input student grades.</p>
-                    <button type="button" onclick="App.openAssignSubjectsModal(${activeSection.id})" class="mt-4 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] cursor-pointer">
-                        + Assign Subjects to ${escapeHtml(activeSection.section_name)}
-                    </button>
+                    <p class="text-base font-display font-bold text-[#17243A]">${isTeacher ? 'No Subjects Handled in ' + escapeHtml(activeSection.section_name) : 'No Subjects Assigned to ' + escapeHtml(activeSection.section_name)}</p>
+                    <p class="text-sm text-[#475569] mt-1">${isTeacher ? 'You are not assigned as the teacher for any subjects in this section.' : 'Assign subjects to this section first so teachers can input student grades.'}</p>
+                    ${!isTeacher ? `
+                        <button type="button" onclick="App.openAssignSubjectsModal(${activeSection.id})" class="mt-4 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] cursor-pointer">
+                            + Assign Subjects to ${escapeHtml(activeSection.section_name)}
+                        </button>
+                    ` : ''}
                 </div>
             `;
             return;
@@ -3536,6 +3577,7 @@ const App = (() => {
                 checked: Boolean(existing),
                 schedule: existing?.schedule || '',
                 instructor: existing?.instructor || '',
+                teacher_id: existing?.teacher_id !== null && existing?.teacher_id !== undefined ? Number(existing.teacher_id) : null,
             };
         });
 
@@ -3566,8 +3608,10 @@ const App = (() => {
             );
         });
 
+        const teachersList = (state.teachers || []).filter(t => t.role === 'teacher');
+
         container.innerHTML = filtered.map(sub => {
-            const draft = state.assignDraftMap[sub.id] || { checked: false, schedule: '', instructor: '' };
+            const draft = state.assignDraftMap[sub.id] || { checked: false, schedule: '', instructor: '', teacher_id: null };
             return `
                 <div class="p-3.5 transition ${draft.checked ? 'bg-[#EBF1F8]/60' : 'hover:bg-white'}">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -3586,17 +3630,22 @@ const App = (() => {
                             </div>
                         </label>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:w-72 shrink-0 ${draft.checked ? '' : 'opacity-40 pointer-events-none'}">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:w-80 shrink-0 ${draft.checked ? '' : 'opacity-40 pointer-events-none'}">
                             <input type="text"
                                 placeholder="Schedule (e.g. MWF 8-9AM)"
                                 value="${escapeHtml(draft.schedule)}"
                                 oninput="App.onAssignMetaChange(${sub.id}, 'schedule', this.value)"
                                 class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] bg-white focus:border-[#5276A7] outline-none">
-                            <input type="text"
-                                placeholder="Teacher / Instructor"
-                                value="${escapeHtml(draft.instructor)}"
-                                oninput="App.onAssignMetaChange(${sub.id}, 'instructor', this.value)"
-                                class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] bg-white focus:border-[#5276A7] outline-none">
+                            <select
+                                onchange="App.onAssignTeacherSelectChange(${sub.id}, this.value)"
+                                class="px-2.5 py-2 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] bg-white font-medium text-[#17243A] focus:border-[#5276A7] outline-none truncate">
+                                <option value="">-- Assign Teacher --</option>
+                                ${teachersList.map(t => `
+                                    <option value="${t.id}" ${draft.teacher_id === t.id ? 'selected' : ''}>
+                                        ${escapeHtml(t.full_name)}
+                                    </option>
+                                `).join('')}
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -3606,9 +3655,23 @@ const App = (() => {
         updateAssignSelectedTotals();
     }
 
+    function onAssignTeacherSelectChange(subjectId, teacherIdVal) {
+        if (!state.assignDraftMap[subjectId]) {
+            state.assignDraftMap[subjectId] = { checked: true, schedule: '', instructor: '', teacher_id: null };
+        }
+        const tid = teacherIdVal ? Number(teacherIdVal) : null;
+        state.assignDraftMap[subjectId].teacher_id = tid;
+        if (tid) {
+            const t = (state.teachers || []).find(x => x.id === tid);
+            state.assignDraftMap[subjectId].instructor = t ? t.full_name : '';
+        } else {
+            state.assignDraftMap[subjectId].instructor = '';
+        }
+    }
+
     function onAssignCheckboxChange(subjectId, isChecked) {
         if (!state.assignDraftMap[subjectId]) {
-            state.assignDraftMap[subjectId] = { checked: false, schedule: '', instructor: '' };
+            state.assignDraftMap[subjectId] = { checked: false, schedule: '', instructor: '', teacher_id: null };
         }
         state.assignDraftMap[subjectId].checked = isChecked;
         renderAssignSubjectsModalList();
@@ -3616,7 +3679,7 @@ const App = (() => {
 
     function onAssignMetaChange(subjectId, field, value) {
         if (!state.assignDraftMap[subjectId]) {
-            state.assignDraftMap[subjectId] = { checked: true, schedule: '', instructor: '' };
+            state.assignDraftMap[subjectId] = { checked: true, schedule: '', instructor: '', teacher_id: null };
         }
         state.assignDraftMap[subjectId][field] = value;
     }
@@ -3673,6 +3736,7 @@ const App = (() => {
                 subject_id: sub.id,
                 schedule: draft.schedule || '',
                 instructor: draft.instructor || '',
+                teacher_id: draft.teacher_id || null,
                 sort_order: idx + 1,
             };
         });
@@ -3706,6 +3770,148 @@ const App = (() => {
         } catch (err) {
             showToast(err.message, 'error');
         }
+    }
+
+    // ==================== ASSIGN SUBJECT TO TEACHER CONTROLLER ====================
+    let returnToTeacherModalAfterCreate = false;
+
+    function openAssignSubjectTeacherModal(teacherId = null, sectionId = null, subjectId = null) {
+        const modal = document.getElementById('assignSubjectTeacherModal');
+        if (!modal) return;
+
+        const teacherSelect = document.getElementById('astTeacherSelect');
+        const sectionSelect = document.getElementById('astSectionSelect');
+        const schedInput = document.getElementById('astScheduleInput');
+
+        // Populate Teachers
+        const teachersList = (state.teachers || []).filter(t => t.role === 'teacher');
+        teacherSelect.innerHTML = `<option value="">-- Select Teacher --</option>` +
+            teachersList.map(t => `<option value="${t.id}">${escapeHtml(t.full_name)} (@${escapeHtml(t.username)})</option>`).join('');
+
+        if (teacherId) {
+            teacherSelect.value = String(teacherId);
+        }
+
+        // Populate Sections
+        sectionSelect.innerHTML = `<option value="">-- Select Section --</option>` +
+            state.sections.map(s => `<option value="${s.id}">${escapeHtml(s.section_name)} (${escapeHtml(s.year_level)})</option>`).join('');
+
+        const activeSecId = sectionId || (state.sections[0] ? state.sections[0].id : null);
+        if (activeSecId) {
+            sectionSelect.value = String(activeSecId);
+        }
+
+        // Populate Subjects based on section
+        populateAstSubjectsDropdown(activeSecId, subjectId);
+
+        // Pre-fill schedule if existing
+        if (schedInput) {
+            schedInput.value = '';
+            if (activeSecId && subjectId) {
+                const sec = state.sections.find(s => s.id === Number(activeSecId));
+                const sub = sec?.assigned_subjects?.find(s => Number(s.subject_id) === Number(subjectId));
+                if (sub && sub.schedule) {
+                    schedInput.value = sub.schedule;
+                }
+            }
+        }
+
+        openModal('assignSubjectTeacherModal');
+    }
+
+    function onAstSectionChange(secId) {
+        populateAstSubjectsDropdown(secId, null);
+    }
+
+    function populateAstSubjectsDropdown(secId, selectedSubId = null) {
+        const subjectSelect = document.getElementById('astSubjectSelect');
+        if (!subjectSelect) return;
+
+        const sec = state.sections.find(s => s.id === Number(secId));
+        const optionsHtml = [`<option value="">-- Select Subject --</option>`];
+
+        // First list subjects already in this section
+        if (sec && sec.assigned_subjects && sec.assigned_subjects.length > 0) {
+            optionsHtml.push(`<optgroup label="Currently in ${escapeHtml(sec.section_name)}">`);
+            sec.assigned_subjects.forEach(asub => {
+                const isSelected = selectedSubId && Number(asub.subject_id) === Number(selectedSubId);
+                const currentTeacher = asub.instructor ? ` (Current Teacher: ${asub.instructor})` : ' (No teacher assigned)';
+                optionsHtml.push(`<option value="${asub.subject_id}" ${isSelected ? 'selected' : ''}>${escapeHtml(asub.subject_code)} — ${escapeHtml(asub.subject_name)}${currentTeacher}</option>`);
+            });
+            optionsHtml.push(`</optgroup>`);
+        }
+
+        // Other subjects in catalog
+        const assignedSubIds = new Set((sec?.assigned_subjects || []).map(s => Number(s.subject_id)));
+        const otherSubs = state.subjects.filter(s => !assignedSubIds.has(Number(s.id)));
+        if (otherSubs.length > 0) {
+            optionsHtml.push(`<optgroup label="Add Other Subject from Catalog">`);
+            otherSubs.forEach(osub => {
+                const isSelected = selectedSubId && Number(osub.id) === Number(selectedSubId);
+                optionsHtml.push(`<option value="${osub.id}" ${isSelected ? 'selected' : ''}>+ ${escapeHtml(osub.subject_code)} — ${escapeHtml(osub.subject_name)} (*${formatUnits(osub.units)}u)</option>`);
+            });
+            optionsHtml.push(`</optgroup>`);
+        }
+
+        subjectSelect.innerHTML = optionsHtml.join('');
+
+        if (selectedSubId) {
+            subjectSelect.value = String(selectedSubId);
+        }
+    }
+
+    function onAstSubjectChange(subId) {
+        const secId = document.getElementById('astSectionSelect')?.value;
+        const schedInput = document.getElementById('astScheduleInput');
+        const teacherSelect = document.getElementById('astTeacherSelect');
+        if (!secId || !subId) return;
+
+        const sec = state.sections.find(s => s.id === Number(secId));
+        const sub = sec?.assigned_subjects?.find(s => Number(s.subject_id) === Number(subId));
+        if (sub) {
+            if (sub.schedule && schedInput) schedInput.value = sub.schedule;
+            if (sub.teacher_id && teacherSelect && !teacherSelect.value) {
+                teacherSelect.value = String(sub.teacher_id);
+            }
+        }
+    }
+
+    async function handleAssignSubjectTeacherSubmit(e) {
+        e.preventDefault();
+        const teacherId = Number(document.getElementById('astTeacherSelect')?.value);
+        const sectionId = Number(document.getElementById('astSectionSelect')?.value);
+        const subjectId = Number(document.getElementById('astSubjectSelect')?.value);
+        const schedule = (document.getElementById('astScheduleInput')?.value || '').trim();
+
+        if (!teacherId || !sectionId || !subjectId) {
+            showToast('Please select a teacher, section, and subject.', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('astSubmitBtn');
+        if (btn) btn.disabled = true;
+
+        try {
+            const res = await apiRequest('assign_subject_teacher', {
+                teacher_id: teacherId,
+                section_id: sectionId,
+                subject_id: subjectId,
+                schedule,
+            });
+            applySystemState(res);
+            closeModal('assignSubjectTeacherModal');
+            showToast(res.message, 'success');
+        } catch (err) {
+            showToast(err.message, 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    function openTeacherModalFromAssign() {
+        returnToTeacherModalAfterCreate = true;
+        closeModal('assignSubjectTeacherModal');
+        openTeacherModal();
     }
 
     // ==================== REORDER SECTION SUBJECTS CONTROLLER ====================
@@ -4490,17 +4696,18 @@ const App = (() => {
             const isActive = Boolean(u.is_active);
 
             // Teaching loads badges
-            const loadCount = Number(u.teaching_load_count || 0);
+            const loadCount = Number(u.teaching_load_count || u.load_count || (u.teaching_loads ? u.teaching_loads.length : (u.loads ? u.loads.length : 0)));
+            const loadsList = u.teaching_loads || u.loads || [];
             let loadHtml = '';
             if (isAdmin) {
                 loadHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">Full Curriculum Access</span>`;
             } else if (loadCount === 0) {
-                loadHtml = `<span class="text-xs text-[#475569] italic">No assigned sections</span>`;
+                loadHtml = `<div class="flex items-center gap-1.5"><span class="text-xs text-[#475569] italic">No assigned subjects</span> <button type="button" onclick="App.openAssignSubjectTeacherModal(${u.id})" class="inline-flex items-center gap-1 text-xs font-bold text-[#0F766E] hover:underline cursor-pointer">+ Assign Subject</button></div>`;
             } else {
-                const loads = (u.teaching_loads || []).slice(0, 3).map(l => 
+                const loads = loadsList.slice(0, 3).map(l => 
                     `<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]">${escapeHtml(l.section_name)}: ${escapeHtml(l.subject_code)}</span>`
                 ).join(' ');
-                loadHtml = `<div class="flex items-center gap-1.5 flex-wrap"><span class="font-bold text-xs text-[#17243A]">${loadCount} class${loadCount === 1 ? '' : 'es'}:</span> ${loads}${loadCount > 3 ? `<span class="text-xs text-[#475569] font-semibold">+${loadCount - 3} more</span>` : ''}</div>`;
+                loadHtml = `<div class="flex items-center gap-1.5 flex-wrap"><span class="font-bold text-xs text-[#17243A]">${loadCount} class${loadCount === 1 ? '' : 'es'}:</span> ${loads}${loadCount > 3 ? `<span class="text-xs text-[#475569] font-semibold">+${loadCount - 3} more</span>` : ''} <button type="button" onclick="App.openAssignSubjectTeacherModal(${u.id})" class="text-xs font-bold text-[#0F766E] hover:underline cursor-pointer" title="Assign additional subject load">+ Add</button></div>`;
             }
 
             // Student add permission badge / toggle
@@ -4559,6 +4766,12 @@ const App = (() => {
                     </td>
                     <td class="py-3.5 px-4 text-right">
                         <div class="inline-flex items-center gap-1.5">
+                            ${!isAdmin ? `
+                                <button type="button" onclick="App.openAssignSubjectTeacherModal(${u.id})" class="px-2 py-1 rounded-lg text-xs font-bold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer flex items-center gap-1" title="Assign Subject Load to this Teacher">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                                    <span>Assign Subject</span>
+                                </button>
+                            ` : ''}
                             <button type="button" onclick="App.openTeacherModal(${u.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Teacher Account">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                             </button>
@@ -4579,7 +4792,7 @@ const App = (() => {
         form.reset();
         document.getElementById('teacherIdInput').value = '';
 
-        const roleSelect = document.getElementById('teacherRoleSelect');
+        const roleSelect = document.getElementById('teacherRoleInput') || document.getElementById('teacherRoleSelect');
         const passStar = document.getElementById('teacherPasswordRequiredStar');
         const passHelp = document.getElementById('teacherPasswordHelp');
         const passInput = document.getElementById('teacherPasswordInput');
@@ -4637,7 +4850,7 @@ const App = (() => {
         const id = document.getElementById('teacherIdInput').value;
         const fullName = (document.getElementById('teacherFullNameInput')?.value || '').trim();
         const username = (document.getElementById('teacherUsernameInput')?.value || '').trim();
-        const role = document.getElementById('teacherRoleSelect')?.value || 'teacher';
+        const role = (document.getElementById('teacherRoleInput') || document.getElementById('teacherRoleSelect'))?.value || 'teacher';
         const password = document.getElementById('teacherPasswordInput')?.value || '';
         const canAddStudent = document.getElementById('teacherCanAddStudentInput')?.checked ? 1 : 0;
         const isActive = document.getElementById('teacherIsActiveInput')?.checked ? 1 : 0;
@@ -4668,6 +4881,12 @@ const App = (() => {
             applySystemState(res);
             closeModal('teacherModal');
             showToast(res.message, 'success');
+
+            if (returnToTeacherModalAfterCreate) {
+                returnToTeacherModalAfterCreate = false;
+                const newT = (state.teachers || []).find(t => t.username === username);
+                openAssignSubjectTeacherModal(newT?.id || null);
+            }
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
@@ -4941,6 +5160,7 @@ const App = (() => {
         document.getElementById('assignSubjectsForm')?.addEventListener('submit', handleAssignSubjectsSubmit);
         document.getElementById('studentForm')?.addEventListener('submit', handleStudentSubmit);
         document.getElementById('teacherForm')?.addEventListener('submit', handleTeacherFormSubmit);
+        document.getElementById('assignSubjectTeacherForm')?.addEventListener('submit', handleAssignSubjectTeacherSubmit);
         document.getElementById('teacherRoleSelect')?.addEventListener('change', onTeacherRoleSelectChange);
         document.getElementById('requestUnlockForm')?.addEventListener('submit', handleRequestUnlockSubmit);
 
@@ -4965,13 +5185,20 @@ const App = (() => {
         // Grading View Selectors
         document.getElementById('gradingSectionSelect')?.addEventListener('change', e => {
             state.gradingSectionId = Number(e.target.value);
-            state.gradingSubjectId = 'ALL';
+            const isTeacher = state.currentUser?.role === 'teacher';
+            const sec = state.sections.find(s => s.id === state.gradingSectionId);
+            const subs = sec?.assigned_subjects || [];
+            if (isTeacher) {
+                state.gradingSubjectId = subs[0] ? String(subs[0].subject_id) : '';
+            } else {
+                state.gradingSubjectId = 'ALL';
+            }
             if (state.currentView === 'grading') {
                 updateBrowserUrl({
                     page: 'grading',
                     section_id: state.gradingSectionId,
                     quarter: state.gradingQuarter,
-                    subject_id: null
+                    subject_id: state.gradingSubjectId !== 'ALL' && state.gradingSubjectId ? state.gradingSubjectId : null
                 }, true);
             }
             renderGradingView();
@@ -5146,6 +5373,12 @@ const App = (() => {
         openReviewUnlockModal,
         submitUnlockDecision,
         toggleGradeLockDirect,
+        openAssignSubjectTeacherModal,
+        onAstSectionChange,
+        onAstSubjectChange,
+        handleAssignSubjectTeacherSubmit,
+        openTeacherModalFromAssign,
+        onAssignTeacherSelectChange,
     };
 })();
 

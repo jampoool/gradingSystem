@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_PASS', 'root');
 define('DB_NAME', 'gradingsystem');
 
 function getDBConnection(): PDO
@@ -170,6 +170,24 @@ function ensureSchema(PDO $pdo): void
     if ($userCount === 0) {
         $seedAdmin = $pdo->prepare("INSERT INTO `users` (username, password_hash, full_name, role) VALUES (?, ?, ?, 'admin')");
         $seedAdmin->execute(['admin', password_hash('admin123', PASSWORD_DEFAULT), 'System Administrator']);
+    }
+
+    // Seed initial teacher accounts if not present (default password: teacher123)
+    $initialTeachers = [
+        ['jpdaguman',  'Jan Paul Daguman'],
+        ['kcortes',     'Kim Cortes'],
+        ['prabina',     'Peter Rabina'],
+        ['cmagbago',    'Casey Magbago'],
+        ['rggabule',    'RG Gabule'],
+        ['dantiquina',  'Danica Antiquina'],
+    ];
+    $teacherCheck = $pdo->prepare("SELECT id FROM `users` WHERE `username` = ?");
+    $teacherInsert = $pdo->prepare("INSERT INTO `users` (`username`, `password_hash`, `full_name`, `role`, `can_add_student`, `is_active`) VALUES (?, ?, ?, 'teacher', 0, 1)");
+    foreach ($initialTeachers as [$uname, $fullName]) {
+        $teacherCheck->execute([$uname]);
+        if (!$teacherCheck->fetch()) {
+            $teacherInsert->execute([$uname, password_hash('teacher123', PASSWORD_DEFAULT), $fullName]);
+        }
     }
 
     // Ensure `sort_order` column exists on existing `section_subjects` table
