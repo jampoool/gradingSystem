@@ -16,6 +16,20 @@ if ($requestedPage === 'users' && !$isAdminUser) {
 
 require_once __DIR__ . '/includes/header.php';
 ?>
+    <!-- Global Animated Top Progress Bar for Active API Actions -->
+    <div id="globalTopProgressBar" class="fixed top-0 left-0 right-0 h-1 z-[100] bg-gradient-to-r from-[#0F766E] via-[#5276A7] to-[#9B3F72] opacity-0 transition-all duration-300 pointer-events-none" style="width: 0%;">
+        <div class="h-full bg-white/40 animate-pulse w-full"></div>
+    </div>
+
+    <!-- Floating Active Action Indicator (bottom-left) -->
+    <div id="globalActionSpinner" class="fixed bottom-6 left-6 z-50 hidden items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-[#17243A]/95 text-white shadow-2xl backdrop-blur-md border border-white/15 text-xs font-semibold pointer-events-none transition-all duration-200" role="status" aria-live="polite">
+        <svg class="animate-spin h-3.5 w-3.5 text-[#99D8CC] shrink-0" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg>
+        <span id="globalActionSpinnerText">Updating academic records...</span>
+    </div>
+
     <!-- App Shell (Academic Prestige — 60% Cloud White #F5F7FA / 30% Midnight Navy #17243A / 10% Semantic Accents) -->
     <div class="min-h-screen lg:h-screen lg:overflow-hidden w-full flex flex-col lg:flex-row bg-[#F5F7FA]">
         <?php require_once __DIR__ . '/includes/sidebar.php'; ?>
@@ -574,7 +588,7 @@ require_once __DIR__ . '/includes/header.php';
                             </div>
 
                             <div class="lg:col-span-3 flex flex-wrap items-center justify-end gap-2">
-                                <label class="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F5F7FA] border border-[#D8DEE8] text-xs font-semibold text-[#17243A] cursor-pointer select-none" title="Automatically saves each grade when you press Enter or move to the next cell">
+                                <label id="autoSaveGradesLabel" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F5F7FA] border border-[#D8DEE8] text-xs font-semibold text-[#17243A] cursor-pointer select-none" title="Automatically saves each grade when you press Enter or move to the next cell">
                                     <input type="checkbox" id="autoSaveGradesToggle" checked class="w-4 h-4 rounded text-[#17243A] focus:ring-[#5276A7] border-[#D8DEE8]">
                                     <span>Auto-Save</span>
                                 </label>
@@ -606,7 +620,7 @@ require_once __DIR__ . '/includes/header.php';
                                 </div>
                             </div>
 
-                            <div class="flex flex-wrap items-center gap-2 shrink-0 can-add-student-only">
+                            <div class="flex flex-wrap items-center gap-2 shrink-0">
                                 <div class="relative">
                                     <svg class="w-4 h-4 text-[#475569] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
@@ -627,7 +641,7 @@ require_once __DIR__ . '/includes/header.php';
                                     <span id="gradingMissingCountBadge" class="px-1.5 py-0.2 rounded-full text-[10px] bg-black/25 text-white font-mono">0</span>
                                 </button>
 
-                                <div class="inline-flex items-center gap-1 bg-[#F5F7FA] px-2.5 py-1.5 rounded-xl border border-[#D8DEE8] text-xs">
+                                <div id="gradingQuickFillContainer" class="inline-flex items-center gap-1 bg-[#F5F7FA] px-2.5 py-1.5 rounded-xl border border-[#D8DEE8] text-xs">
                                     <span class="text-[#475569] font-semibold mr-1">Fill Empty:</span>
                                     <button type="button" onclick="App.quickFillEmptyGrades(85)" class="px-2 py-0.5 rounded-md bg-white hover:bg-[#EBF1F8] text-[#17243A] font-semibold border border-[#D8DEE8] transition cursor-pointer">85</button>
                                     <button type="button" onclick="App.quickFillEmptyGrades(88)" class="px-2 py-0.5 rounded-md bg-white hover:bg-[#EBF1F8] text-[#17243A] font-semibold border border-[#D8DEE8] transition cursor-pointer">88</button>
@@ -727,45 +741,96 @@ require_once __DIR__ . '/includes/header.php';
                 <!-- ==================== VIEW 6: AUTOMATED QUARTERLY REPORT, RANKING & HONOR PULLOUT ==================== -->
                 <section id="view-reports" class="view-panel <?= $requestedPage === 'reports' ? '' : 'hidden' ?> space-y-4">
                     <!-- Report Filter Bar -->
-                    <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col lg:flex-row lg:items-end justify-between gap-3.5 no-print shrink-0">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 flex-1">
-                            <div>
-                                <label for="reportSectionSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">Select Section</label>
-                                <select id="reportSectionSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
-                                    <!-- Populated by JS -->
-                                </select>
+                    <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex flex-col gap-3.5 no-print shrink-0">
+                        <!-- Top Row: Scope Switcher (Single Section vs All Sections Grade Level) -->
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#D8DEE8]/70">
+                            <div class="flex items-center gap-1.5 p-1 bg-[#F5F7FA] rounded-xl border border-[#D8DEE8] w-fit">
+                                <button type="button" id="reportScopeSectionBtn" onclick="App.setReportScope('section')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-[#17243A] text-white shadow-2xs">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                                    <span>Individual Section</span>
+                                </button>
+                                <button type="button" id="reportScopeGradeLevelBtn" onclick="App.setReportScope('grade_level')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer text-[#475569] hover:text-[#17243A]">
+                                    <svg class="w-3.5 h-3.5 text-[#80530F]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>
+                                    <span>🌟 All Sections (Per Grade Level)</span>
+                                </button>
                             </div>
-                            <div>
-                                <label for="reportQuarterSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">Quarter / Evaluation Period</label>
-                                <select id="reportQuarterSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
-                                    <option value="Q1">1st Quarter (Q1)</option>
-                                    <option value="Q2">2nd Quarter (Q2)</option>
-                                    <option value="Q3">3rd Quarter (Q3)</option>
-                                    <option value="Q4">4th Quarter (Q4)</option>
-                                    <option value="FINAL">Final Average (Q1–Q4 Cumulative)</option>
-                                </select>
+                            <div class="text-xs text-[#475569] font-medium flex items-center gap-2">
+                                <span class="inline-block w-2 h-2 rounded-full bg-[#0F766E]"></span>
+                                <span id="reportScopeNotice">Viewing detailed per-subject grade sheet &amp; honors for a single section.</span>
                             </div>
                         </div>
 
-                        <div class="flex flex-wrap items-center gap-2">
-                            <button type="button" onclick="App.openGradingForReportSection()" class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#5276A7] hover:bg-[#3E5F8A] transition cursor-pointer">
-                                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                                </svg>
-                                <span>Edit Section Grades</span>
-                            </button>
-                            <button type="button" onclick="App.printReport('honors')" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer" title="Print only the Official Academic Honors Certificate / Roster">
-                                <span>🎖️ Print Honors Only</span>
-                            </button>
-                            <button type="button" onclick="App.printReport('grades')" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#D8E4F3] border border-[#C5D5EA] transition cursor-pointer" title="Print only the Full Section Grade Sheet">
-                                <span>📋 Print Grade Sheet Only</span>
-                            </button>
-                            <button type="button" onclick="App.printReport('all')" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer" title="Print complete report with Honors on Page 1 and Grade Sheet on Page 2+">
-                                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
-                                </svg>
-                                <span>Print Complete (Separated)</span>
-                            </button>
+                        <!-- Bottom Row: Filter Dropdowns & Actions -->
+                        <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-3.5">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 flex-1">
+                                <!-- Section Dropdown (Shown in Section Scope) -->
+                                <div id="reportSectionSelectWrap">
+                                    <label for="reportSectionSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">Select Section</label>
+                                    <select id="reportSectionSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                        <!-- Populated by JS -->
+                                    </select>
+                                </div>
+
+                                <!-- Grade Level Dropdown (Shown in Grade Level Scope) -->
+                                <div id="reportGradeLevelSelectWrap" class="hidden">
+                                    <label for="reportGradeLevelSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">Select Grade Level</label>
+                                    <select id="reportGradeLevelSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                        <!-- Populated by JS -->
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label for="reportQuarterSelect" class="block text-xs font-bold uppercase tracking-wider text-[#475569] mb-1.5">Quarter / Evaluation Period</label>
+                                    <select id="reportQuarterSelect" class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                                        <option value="Q1">1st Quarter (Q1)</option>
+                                        <option value="Q2">2nd Quarter (Q2)</option>
+                                        <option value="Q3">3rd Quarter (Q3)</option>
+                                        <option value="Q4">4th Quarter (Q4)</option>
+                                        <option value="FINAL">Final Average (Q1–Q4 Cumulative)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Action Buttons: Single Section Mode -->
+                            <div id="reportSectionActions" class="flex flex-wrap items-center gap-2">
+                                <button type="button" onclick="App.openGradingForReportSection()" class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#5276A7] hover:bg-[#3E5F8A] transition cursor-pointer">
+                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                    </svg>
+                                    <span id="openGradingBtnLabel">Edit Section Grades</span>
+                                </button>
+                                <button type="button" onclick="App.printReport('honors')" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer" title="Print only the Official Academic Honors Certificate / Roster">
+                                    <span>🎖️ Print Honors Only</span>
+                                </button>
+                                <button type="button" onclick="App.printReport('grades')" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#D8E4F3] border border-[#C5D5EA] transition cursor-pointer" title="Print only the Full Section Grade Sheet">
+                                    <span>📋 Print Grade Sheet Only</span>
+                                </button>
+                                <button type="button" onclick="App.printReport('all')" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer" title="Print complete report with Honors on Page 1 and Grade Sheet on Page 2+">
+                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+                                    </svg>
+                                    <span>Print Complete</span>
+                                </button>
+                            </div>
+
+                            <!-- Action Buttons: All Sections Grade-Level Mode -->
+                            <div id="reportGradeLevelActions" class="hidden flex-wrap items-center gap-2">
+                                <button type="button" onclick="App.printReport('section_top1s')" class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#80530F] bg-[#FFF0D1] hover:bg-[#fae4b5] border border-[#F0D296] transition cursor-pointer" title="Print only the Section Top 1s Roster (Section 1 to N)">
+                                    <span>🏆 Print Section Top 1s</span>
+                                </button>
+                                <button type="button" onclick="App.printReport('gl_honors')" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer" title="Print official Grade-Level Honors Roster across all sections">
+                                    <span>🎖️ Print Level Honors</span>
+                                </button>
+                                <button type="button" onclick="App.printReport('gl_ranking')" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-[#2C4870] bg-[#EBF1F8] hover:bg-[#D8E4F3] border border-[#C5D5EA] transition cursor-pointer" title="Print full consolidated grade-level ranking of all enrolled students">
+                                    <span>📋 Print Full Ranking</span>
+                                </button>
+                                <button type="button" onclick="App.printReport('all')" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer" title="Print complete Grade Level dossier (Section Top 1s, Level Honors, &amp; Master Ranking)">
+                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+                                    </svg>
+                                    <span>Print Complete</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
 

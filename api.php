@@ -132,7 +132,7 @@ function fetchSystemState(PDO $pdo): array
             'schedule'      => $row['schedule'] ?? '',
             'instructor'    => ($row['teacher_name'] ?? '') !== '' ? $row['teacher_name'] : ($row['instructor'] ?? ''),
             'teacher_id'    => $row['teacher_id'] !== null ? (int)$row['teacher_id'] : null,
-            'can_edit'      => $viewerIsAdmin || ((int)($row['teacher_id'] ?? 0) === $viewerId && $viewerId > 0),
+            'can_edit'      => !$viewerIsAdmin && ((int)($row['teacher_id'] ?? 0) === $viewerId && $viewerId > 0),
             'sort_order'    => (int)($row['sort_order'] ?? 0),
         ];
 
@@ -144,7 +144,7 @@ function fetchSystemState(PDO $pdo): array
             'schedule'      => $row['schedule'] ?? '',
             'instructor'    => ($row['teacher_name'] ?? '') !== '' ? $row['teacher_name'] : ($row['instructor'] ?? ''),
             'teacher_id'    => $row['teacher_id'] !== null ? (int)$row['teacher_id'] : null,
-            'can_edit'      => $viewerIsAdmin || ((int)($row['teacher_id'] ?? 0) === $viewerId && $viewerId > 0),
+            'can_edit'      => !$viewerIsAdmin && ((int)($row['teacher_id'] ?? 0) === $viewerId && $viewerId > 0),
         ];
     }
 
@@ -1195,6 +1195,10 @@ try {
             break;
 
         case 'save_grades':
+            if ($authUser['role'] === 'admin') {
+                respond(false, 'Administrators have read-only access to grades. Only assigned teachers can encode and edit grades.', [], 403);
+            }
+
             $entries = $input['entries'] ?? [];
             if (!is_array($entries) || empty($entries)) {
                 respond(false, 'No grade entries provided.', [], 422);
@@ -1217,14 +1221,11 @@ try {
             $pdo->beginTransaction();
             $savedCount = 0;
             // Teachers may only encode grades for subject loads assigned to them
-            $ownedLoads = null;
-            if ($authUser['role'] !== 'admin') {
-                $ownStmt = $pdo->prepare("SELECT section_id, subject_id FROM section_subjects WHERE teacher_id = ?");
-                $ownStmt->execute([$authUser['id']]);
-                $ownedLoads = [];
-                foreach ($ownStmt->fetchAll() as $own) {
-                    $ownedLoads[(int)$own['section_id'] . ':' . (int)$own['subject_id']] = true;
-                }
+            $ownStmt = $pdo->prepare("SELECT section_id, subject_id FROM section_subjects WHERE teacher_id = ?");
+            $ownStmt->execute([$authUser['id']]);
+            $ownedLoads = [];
+            foreach ($ownStmt->fetchAll() as $own) {
+                $ownedLoads[(int)$own['section_id'] . ':' . (int)$own['subject_id']] = true;
             }
             $studentSectionStmt = $pdo->prepare("SELECT section_id FROM students WHERE id = ?");
             foreach ($entries as $entry) {
@@ -1244,18 +1245,16 @@ try {
                     $pdo->rollBack();
                     respond(false, 'A grade entry does not match the student\'s section.', [], 422);
                 }
-                if ($ownedLoads !== null && !isset($ownedLoads[$sectionId . ':' . $subjectId])) {
+                if (!isset($ownedLoads[$sectionId . ':' . $subjectId])) {
                     $pdo->rollBack();
                     respond(false, 'You can only encode grades for subjects assigned to you.', [], 403);
                 }
 
-                if ($authUser['role'] !== 'admin') {
-                    $lockCheck = $pdo->prepare("SELECT is_locked FROM grade_locks WHERE section_id = ? AND subject_id = ? AND quarter = ?");
-                    $lockCheck->execute([$sectionId, $subjectId, $quarter]);
-                    if ((int)$lockCheck->fetchColumn() === 1) {
-                        $pdo->rollBack();
-                        respond(false, "Grades for this subject in {} are locked and finalized. Please submit an unlock request to make corrections.", [], 403);
-                    }
+                $lockCheck = $pdo->prepare("SELECT is_locked FROM grade_locks WHERE section_id = ? AND subject_id = ? AND quarter = ?");
+                $lockCheck->execute([$sectionId, $subjectId, $quarter]);
+                if ((int)$lockCheck->fetchColumn() === 1) {
+                    $pdo->rollBack();
+                    respond(false, "Grades for this subject in {$quarter} are locked and finalized. Please submit an unlock request to make corrections.", [], 403);
                 }
 
                 if ($rawGrade === '' || $rawGrade === null) {

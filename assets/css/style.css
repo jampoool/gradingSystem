@@ -319,7 +319,7 @@ input[data-grade-input="true"]:focus {
         margin-top: 18px !important;
     }
 
-    /* Selective Print Modes: All, Honors Only, Grade Sheet Only */
+    /* Selective Print Modes: All, Honors Only, Grade Sheet Only, Section Top 1s, Grade Level Honors, Full Ranking */
     body[data-print-target="honors"] #printMasterGradesSection,
     body[data-print-target="honors"] .print-page-break {
         display: none !important;
@@ -330,9 +330,30 @@ input[data-grade-input="true"]:focus {
         display: none !important;
     }
 
+    body[data-print-target="section_top1s"] #printGradeLevelHonorsSection,
+    body[data-print-target="section_top1s"] #printGradeLevelFullRankingSection,
+    body[data-print-target="section_top1s"] .print-page-break {
+        display: none !important;
+    }
+
+    body[data-print-target="gl_honors"] #printSectionTop1sRoster,
+    body[data-print-target="gl_honors"] #printGradeLevelFullRankingSection,
+    body[data-print-target="gl_honors"] .print-page-break {
+        display: none !important;
+    }
+
+    body[data-print-target="gl_ranking"] #printSectionTop1sRoster,
+    body[data-print-target="gl_ranking"] #printGradeLevelHonorsSection,
+    body[data-print-target="gl_ranking"] .print-page-break {
+        display: none !important;
+    }
+
     /* Reset rounded cards, borders, and shadows for clean PDF edges */
     #printHonorsSection,
-    #printMasterGradesSection {
+    #printMasterGradesSection,
+    #printSectionTop1sRoster,
+    #printGradeLevelHonorsSection,
+    #printGradeLevelFullRankingSection {
         border-radius: 0 !important;
         border: 1px solid #cbd5e1 !important;
         box-shadow: none !important;

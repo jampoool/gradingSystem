@@ -220,24 +220,26 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                         </p>
                     </div>
 
-                    <!-- Error Alert (WCAG 2.1 AA Compliant Contrast) -->
+                    <!-- Error Alert (Generous Spacing & High-Clarity Design) -->
                     <?php if ($error !== ''): ?>
-                    <div id="loginErrorAlert" class="mb-5 flex items-start gap-3 rounded-2xl bg-[#F5DFEB] border border-[#E2B8CF] p-4 text-sm text-[#842D60] shadow-xs" role="alert" aria-live="assertive">
-                        <div class="w-5 h-5 rounded-full bg-[#9B3F72] text-white flex items-center justify-center shrink-0 text-xs font-bold mt-0.5" aria-hidden="true">
-                            &#10005;
+                    <div id="loginErrorAlert" class="my-7 flex items-start gap-4 rounded-2xl bg-[#F5DFEB] border-2 border-[#E2B8CF] p-5 sm:p-6 text-sm text-[#842D60] shadow-sm transition-all" role="alert" aria-live="assertive">
+                        <div class="w-10 h-10 rounded-xl bg-[#9B3F72] text-white flex items-center justify-center shrink-0 shadow-xs text-base font-bold mt-0.5" aria-hidden="true">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                            </svg>
                         </div>
-                        <div class="flex-1">
-                            <p class="font-bold text-sm text-[#842D60]">Authentication Failed</p>
-                            <p class="text-xs text-[#842D60]/90 mt-0.5 leading-relaxed"><?= htmlspecialchars($error) ?></p>
+                        <div class="flex-1 min-w-0 pt-0.5">
+                            <p class="font-display font-bold text-sm sm:text-base text-[#842D60] tracking-tight">Authentication Notice</p>
+                            <p class="text-xs sm:text-sm text-[#842D60] mt-1.5 leading-relaxed font-medium"><?= htmlspecialchars($error) ?></p>
                         </div>
                     </div>
                     <?php endif; ?>
 
                     <!-- Form Controls -->
-                    <form method="post" action="login.php" class="space-y-4" novalidate id="loginForm">
+                    <form method="post" action="login.php" class="space-y-6" novalidate id="loginForm">
                         <!-- Username Field -->
                         <div>
-                            <label for="username" class="block text-xs font-bold uppercase tracking-wider text-[#17243A] mb-1.5">
+                            <label for="username" class="block text-xs font-bold uppercase tracking-wider text-[#17243A] mb-2">
                                 Username <span class="text-[#9B3F72]">*</span>
                             </label>
                             <div class="relative">
@@ -250,17 +252,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                                     value="<?= htmlspecialchars($username) ?>"
                                     placeholder="Enter your username"
                                     <?= $error !== '' ? 'aria-invalid="true" aria-describedby="loginErrorAlert"' : '' ?>
-                                    class="w-full pl-11 pr-4 py-3 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] placeholder-[#94A3B8] focus:border-[#5276A7] focus:ring-4 focus:ring-[#5276A7]/15 outline-none transition shadow-2xs font-medium">
+                                    class="w-full pl-11 pr-4 py-3.5 text-sm rounded-xl border <?= $error !== '' ? 'border-[#9B3F72] ring-2 ring-[#9B3F72]/15' : 'border-[#D8DEE8]' ?> bg-white text-[#17243A] placeholder-[#94A3B8] focus:border-[#5276A7] focus:ring-4 focus:ring-[#5276A7]/15 outline-none transition shadow-2xs font-medium">
                             </div>
                         </div>
 
                         <!-- Password Field -->
                         <div>
-                            <div class="flex items-center justify-between mb-1.5">
+                            <div class="flex items-center justify-between mb-2">
                                 <label for="password" class="block text-xs font-bold uppercase tracking-wider text-[#17243A]">
                                     Password <span class="text-[#9B3F72]">*</span>
                                 </label>
-                                <span class="text-[11px] text-[#475569]">Case-sensitive</span>
+                                <span class="text-[11px] font-medium text-[#475569]">Case-sensitive</span>
                             </div>
                             <div class="relative">
                                 <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#475569]">
@@ -271,7 +273,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                                 <input id="password" name="password" type="password" autocomplete="current-password" required
                                     placeholder="Enter your account password"
                                     <?= $error !== '' ? 'aria-invalid="true" aria-describedby="loginErrorAlert"' : '' ?>
-                                    class="w-full pl-11 pr-12 py-3 text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] placeholder-[#94A3B8] focus:border-[#5276A7] focus:ring-4 focus:ring-[#5276A7]/15 outline-none transition shadow-2xs font-medium">
+                                    class="w-full pl-11 pr-12 py-3.5 text-sm rounded-xl border <?= $error !== '' ? 'border-[#9B3F72] ring-2 ring-[#9B3F72]/15' : 'border-[#D8DEE8]' ?> bg-white text-[#17243A] placeholder-[#94A3B8] focus:border-[#5276A7] focus:ring-4 focus:ring-[#5276A7]/15 outline-none transition shadow-2xs font-medium">
                                 
                                 <button type="button" id="togglePasswordBtn"
                                     class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-[#475569] hover:text-[#17243A] transition cursor-pointer"
@@ -287,8 +289,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                             </div>
                         </div>
 
-                        <!-- Sign In Button -->
-                        <div class="pt-2">
+                        <!-- Sign In Button with Roomy Spacing -->
+                        <div class="pt-3">
                             <button type="submit" id="submitBtn"
                                 class="w-full py-3.5 px-5 rounded-xl text-sm font-bold text-white bg-[#17243A] hover:bg-[#243752] focus:ring-4 focus:ring-[#17243A]/25 shadow-md shadow-[#17243A]/10 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]">
                                 <span>Sign In to Dashboard</span>
@@ -392,8 +394,46 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             }
         }
 
-        // Form Submit Loading State Feedback
-        document.getElementById('loginForm')?.addEventListener('submit', function () {
+        // Form Submit Loading State Feedback with Spacious Error Handling
+        document.getElementById('loginForm')?.addEventListener('submit', function (e) {
+            const uInput = document.getElementById('username');
+            const pInput = document.getElementById('password');
+            const u = (uInput?.value || '').trim();
+            const p = (pInput?.value || '');
+
+            if (!u || !p) {
+                e.preventDefault();
+                let alertEl = document.getElementById('loginErrorAlert');
+                if (!alertEl) {
+                    alertEl = document.createElement('div');
+                    alertEl.id = 'loginErrorAlert';
+                    alertEl.className = 'my-7 flex items-start gap-4 rounded-2xl bg-[#F5DFEB] border-2 border-[#E2B8CF] p-5 sm:p-6 text-sm text-[#842D60] shadow-sm animate-fade-in';
+                    alertEl.setAttribute('role', 'alert');
+                    alertEl.setAttribute('aria-live', 'assertive');
+                    const formEl = document.getElementById('loginForm');
+                    formEl.parentNode.insertBefore(alertEl, formEl);
+                }
+                alertEl.innerHTML = `
+                    <div class="w-10 h-10 rounded-xl bg-[#9B3F72] text-white flex items-center justify-center shrink-0 shadow-xs text-base font-bold mt-0.5" aria-hidden="true">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1 min-w-0 pt-0.5">
+                        <p class="font-display font-bold text-sm sm:text-base text-[#842D60] tracking-tight">Authentication Notice</p>
+                        <p class="text-xs sm:text-sm text-[#842D60] mt-1.5 leading-relaxed font-medium">Please enter both your institutional username and account password.</p>
+                    </div>
+                `;
+                if (!u && uInput) {
+                    uInput.classList.add('border-[#9B3F72]', 'ring-2', 'ring-[#9B3F72]/20');
+                    uInput.focus();
+                } else if (!p && pInput) {
+                    pInput.classList.add('border-[#9B3F72]', 'ring-2', 'ring-[#9B3F72]/20');
+                    pInput.focus();
+                }
+                return false;
+            }
+
             const btn = document.getElementById('submitBtn');
             const overlay = document.getElementById('loginAuthOverlay');
             if (overlay) {
@@ -401,8 +441,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             }
             if (btn) {
                 btn.disabled = true;
+                btn.classList.add('pointer-events-none', 'opacity-90');
                 btn.innerHTML = `
-                    <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <svg class="animate-spin -ml-1 mr-2.5 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
                     </svg>

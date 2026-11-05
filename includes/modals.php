@@ -712,10 +712,10 @@
                         Close
                     </button>
                     <div class="flex items-center gap-2">
-                        <button type="button" onclick="App.submitUnlockDecision('reject')" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-[#842D60] bg-[#F5DFEB] hover:bg-[#eed3e3] border border-[#E2B8CF] transition cursor-pointer">
+                        <button type="button" id="unlockRejectBtn" onclick="App.submitUnlockDecision('reject')" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-[#842D60] bg-[#F5DFEB] hover:bg-[#eed3e3] border border-[#E2B8CF] transition cursor-pointer">
                             Reject Request
                         </button>
-                        <button type="button" onclick="App.submitUnlockDecision('approve')" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#0F766E] hover:bg-[#0c5f58] shadow-sm transition cursor-pointer">
+                        <button type="button" id="unlockApproveBtn" onclick="App.submitUnlockDecision('approve')" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#0F766E] hover:bg-[#0c5f58] shadow-sm transition cursor-pointer">
                             ✓ Approve &amp; Unlock Grades
                         </button>
                     </div>
@@ -945,5 +945,5 @@
     </div>
 </div>
 
-<!-- Toast Notification Container -->
-<div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none no-print"></div>
+<!-- Toast Notification Container with Generous Spacing -->
+<div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3.5 max-w-md w-full pointer-events-none no-print"></div>

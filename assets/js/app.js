@@ -68,8 +68,15 @@ const App = (() => {
         gradingSubjectId: 'ALL',
         gradingQuarter: 'Q1',
 
+        reportScope: 'section', // 'section' | 'grade_level'
         reportSectionId: null,
+        reportGradeLevel: null,
         reportQuarter: 'Q1',
+        reportHonorTierFilter: 'all', // 'all' | 'highest' | 'high' | 'honors'
+        reportHonorSectionFilter: 'all', // 'all' | section_id
+        reportHonorSearch: '',
+        reportGradeLevelFilter: 'all', // 'all' | 'qualifiers' | 'female' | 'male'
+        reportGradeLevelSearch: '',
 
         currentUser: null,
         teachers: [],
@@ -453,7 +460,74 @@ const App = (() => {
         };
     }
 
-    async function apiRequest(action, payload = null) {
+    let activeApiRequestsCount = 0;
+
+    function showGlobalLoading(actionText = 'Processing...') {
+        activeApiRequestsCount++;
+        const bar = document.getElementById('globalTopProgressBar');
+        if (bar) {
+            bar.style.width = '72%';
+            bar.classList.remove('opacity-0');
+            bar.classList.add('opacity-100');
+        }
+        const spinner = document.getElementById('globalActionSpinner');
+        const spinnerText = document.getElementById('globalActionSpinnerText');
+        if (spinner && spinnerText) {
+            spinnerText.textContent = actionText;
+            spinner.classList.remove('hidden');
+            spinner.classList.add('flex');
+        }
+    }
+
+    function hideGlobalLoading() {
+        activeApiRequestsCount = Math.max(0, activeApiRequestsCount - 1);
+        if (activeApiRequestsCount === 0) {
+            const bar = document.getElementById('globalTopProgressBar');
+            if (bar) {
+                bar.style.width = '100%';
+                setTimeout(() => {
+                    bar.classList.remove('opacity-100');
+                    bar.classList.add('opacity-0');
+                    setTimeout(() => {
+                        bar.style.width = '0%';
+                    }, 300);
+                }, 200);
+            }
+            const spinner = document.getElementById('globalActionSpinner');
+            if (spinner) {
+                spinner.classList.remove('flex');
+                spinner.classList.add('hidden');
+            }
+        }
+    }
+
+    function setButtonLoading(btn, isLoading, loadingText = 'Processing...') {
+        if (!btn) return;
+        if (isLoading) {
+            if (!btn.getAttribute('data-original-html')) {
+                btn.setAttribute('data-original-html', btn.innerHTML);
+            }
+            btn.disabled = true;
+            btn.classList.add('opacity-80', 'pointer-events-none', 'cursor-not-allowed');
+            btn.innerHTML = `
+                <svg class="animate-spin -ml-0.5 mr-2 h-4 w-4 text-current inline-block shrink-0" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                </svg>
+                <span>${escapeHtml(loadingText)}</span>
+            `;
+        } else {
+            btn.disabled = false;
+            btn.classList.remove('opacity-80', 'pointer-events-none', 'cursor-not-allowed');
+            const orig = btn.getAttribute('data-original-html');
+            if (orig) {
+                btn.innerHTML = orig;
+                btn.removeAttribute('data-original-html');
+            }
+        }
+    }
+
+    async function apiRequest(action, payload = null, loadingLabel = null) {
         const isPost = payload !== null;
         const url = `api.php?action=${encodeURIComponent(action)}`;
         const options = {
@@ -467,12 +541,18 @@ const App = (() => {
             options.body = JSON.stringify({ action, ...payload });
         }
 
-        const response = await fetch(url, options);
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-            throw new Error(data.message || 'An unexpected error occurred.');
+        showGlobalLoading(loadingLabel || `Syncing ${action.replace(/_/g, ' ')}...`);
+
+        try {
+            const response = await fetch(url, options);
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'An unexpected error occurred.');
+            }
+            return data;
+        } finally {
+            hideGlobalLoading();
         }
-        return data;
     }
 
     function showToast(message, type = 'success') {
@@ -480,40 +560,50 @@ const App = (() => {
         if (!container) return;
 
         const toast = document.createElement('div');
-        // Academic Prestige semantic toast styling
         const colors = {
-            success: 'bg-[#17243A] text-white border-[#0F766E]',
-            error: 'bg-[#842D60] text-white border-[#9B3F72]',
-            warning: 'bg-[#80530F] text-white border-[#B7791F]',
-            info: 'bg-[#243752] text-white border-[#5276A7]',
+            success: 'bg-[#17243A] text-white border-l-4 border-[#0F766E]',
+            error: 'bg-[#842D60] text-white border-l-4 border-[#F5DFEB]',
+            warning: 'bg-[#80530F] text-white border-l-4 border-[#F0D296]',
+            info: 'bg-[#243752] text-white border-l-4 border-[#5276A7]',
+        };
+        const titles = {
+            success: 'Operation Successful',
+            error: 'Notice &bull; Error Occurred',
+            warning: 'Attention Required',
+            info: 'System Information',
         };
         const iconHtml = type === 'error'
-            ? `<span class="w-6 h-6 rounded-lg bg-[#F5DFEB] text-[#842D60] flex items-center justify-center shrink-0 font-bold text-xs">✕</span>`
+            ? `<div class="w-9 h-9 rounded-xl bg-[#F5DFEB] text-[#842D60] flex items-center justify-center shrink-0 font-bold text-sm shadow-xs">&#10005;</div>`
             : type === 'warning'
-                ? `<span class="w-6 h-6 rounded-lg bg-[#FFF0D1] text-[#80530F] flex items-center justify-center shrink-0 font-bold text-xs">!</span>`
+                ? `<div class="w-9 h-9 rounded-xl bg-[#FFF0D1] text-[#80530F] flex items-center justify-center shrink-0 font-bold text-sm shadow-xs">!</div>`
                 : type === 'info'
-                    ? `<span class="w-6 h-6 rounded-lg bg-[#EBF1F8] text-[#2C4870] flex items-center justify-center shrink-0 font-bold text-xs">i</span>`
-                    : `<span class="w-6 h-6 rounded-lg bg-[#D5F0EA] text-[#0F766E] flex items-center justify-center shrink-0 font-bold text-xs">&#10003;</span>`;
+                    ? `<div class="w-9 h-9 rounded-xl bg-[#EBF1F8] text-[#2C4870] flex items-center justify-center shrink-0 font-bold text-sm shadow-xs">i</div>`
+                    : `<div class="w-9 h-9 rounded-xl bg-[#D5F0EA] text-[#0F766E] flex items-center justify-center shrink-0 font-bold text-sm shadow-xs">&#10003;</div>`;
 
         toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
         toast.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
-        toast.className = `toast-enter pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border-l-4 ${colors[type] || colors.success} text-sm font-medium`;
+        toast.className = `toast-enter pointer-events-auto flex items-start gap-3.5 p-4 sm:p-5 rounded-2xl shadow-2xl ${colors[type] || colors.success} text-sm transition-all`;
         toast.innerHTML = `
             ${iconHtml}
-            <span class="flex-1 leading-snug">${escapeHtml(message)}</span>
-            <button type="button" class="text-slate-300 hover:text-white p-1 text-base leading-none cursor-pointer" aria-label="Close notification">&times;</button>
+            <div class="flex-1 min-w-0 pr-1">
+                <p class="font-display font-bold text-xs uppercase tracking-wider opacity-90 leading-tight mb-1">${titles[type] || 'Notice'}</p>
+                <p class="text-xs sm:text-sm leading-relaxed opacity-95">${escapeHtml(message)}</p>
+            </div>
+            <button type="button" class="w-7 h-7 rounded-lg hover:bg-white/15 flex items-center justify-center shrink-0 text-slate-300 hover:text-white transition cursor-pointer" aria-label="Close notification">&times;</button>
         `;
 
         toast.querySelector('button').addEventListener('click', () => toast.remove());
         container.appendChild(toast);
 
+        const duration = type === 'error' ? 5500 : 4000;
         setTimeout(() => {
             if (toast.parentNode) {
                 toast.style.opacity = '0';
-                toast.style.transition = 'opacity 0.2s ease';
-                setTimeout(() => toast.remove(), 200);
+                toast.style.transform = 'translateY(8px)';
+                toast.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+                setTimeout(() => toast.remove(), 250);
             }
-        }, 4000);
+        }, duration);
     }
 
     function applySystemState(data) {
@@ -536,6 +626,17 @@ const App = (() => {
         const urlSecId = urlParams.get('section_id');
         const urlQtr = urlParams.get('quarter');
         const urlSubId = urlParams.get('subject_id');
+        const urlScope = urlParams.get('scope');
+        const urlGradeLevel = urlParams.get('grade_level');
+
+        if (urlScope === 'grade_level' || urlGradeLevel) {
+            state.reportScope = 'grade_level';
+            if (urlGradeLevel) {
+                state.reportGradeLevel = urlGradeLevel;
+            }
+        } else if (urlScope === 'section') {
+            state.reportScope = 'section';
+        }
 
         if (state.sections.length > 0) {
             const hasUrlSec = urlSecId && state.sections.some(s => s.id === Number(urlSecId));
@@ -1447,7 +1548,7 @@ const App = (() => {
                 </div>
             `;
             if (gridContainer) gridContainer.innerHTML = emptyHtml;
-            if (tableBody) tableBody.innerHTML = `<tr><td colspan="7" class="py-12 px-4 text-center">${emptyHtml}</td></tr>`;
+            if (tableBody) tableBody.innerHTML = `<tr><td colspan="5" class="py-12 px-4 text-center">${emptyHtml}</td></tr>`;
             return;
         }
 
@@ -2258,6 +2359,11 @@ const App = (() => {
     function updateSaveStatusBadge(status = 'saved') {
         const badge = document.getElementById('gradingSaveStatusBadge');
         if (!badge) return;
+        if (state.currentUser?.role === 'admin') {
+            badge.className = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]';
+            badge.innerHTML = `<svg class="w-3.5 h-3.5 text-[#5276A7]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg><span>Admin View &bull; Read-Only</span>`;
+            return;
+        }
         if (status === 'saving') {
             badge.className = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]';
             badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-[#5276A7] animate-ping"></span><span>Saving...</span>`;
@@ -2598,12 +2704,40 @@ const App = (() => {
             }
         }
 
-        const inputsDisabled = isSheetLocked && !isAdmin;
+        // Configure Header Save Controls for Admin vs Teacher
+        const autoSaveLabel = document.getElementById('autoSaveGradesLabel');
+        const saveBtn = document.getElementById('saveGradesBtn');
+        const quickFillContainer = document.getElementById('gradingQuickFillContainer');
+        const jumpBtn = document.getElementById('jumpToNextEmptyBtn');
+        const saveStatusBadge = document.getElementById('gradingSaveStatusBadge');
+
+        if (isAdmin) {
+            if (autoSaveLabel) autoSaveLabel.classList.add('hidden');
+            if (saveBtn) saveBtn.classList.add('hidden');
+            if (quickFillContainer) quickFillContainer.classList.add('hidden');
+            if (jumpBtn) jumpBtn.classList.add('hidden');
+            if (saveStatusBadge) {
+                saveStatusBadge.className = 'inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]';
+                saveStatusBadge.innerHTML = `
+                    <svg class="w-3.5 h-3.5 text-[#5276A7]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    <span>Admin View &bull; Read-Only</span>
+                `;
+            }
+        } else {
+            if (autoSaveLabel) autoSaveLabel.classList.remove('hidden');
+            if (saveBtn) saveBtn.classList.remove('hidden');
+            if (quickFillContainer) quickFillContainer.classList.remove('hidden');
+            if (jumpBtn) jumpBtn.classList.remove('hidden');
+            updateSaveStatusBadge('saved');
+        }
+
+        // Admin cannot edit grades on any subjects per section (strictly read-only)
+        const inputsDisabled = isAdmin || isSheetLocked;
 
         if (state.gradingSubjectId !== 'ALL') {
             renderSingleSubjectGradeSheet(container, activeSection, filteredStandings, Number(state.gradingSubjectId), inputsDisabled);
         } else {
-            renderMasterSectionGradeSheet(container, activeSection, filteredStandings, subjectLocksMap, !isAdmin);
+            renderMasterSectionGradeSheet(container, activeSection, filteredStandings, subjectLocksMap, true);
         }
 
         updateMissingGradesCounter();
@@ -2611,6 +2745,8 @@ const App = (() => {
     }
 
     function renderSingleSubjectGradeSheet(container, section, standings, subjectId, isLocked = false) {
+        const isAdmin = state.currentUser?.role === 'admin';
+        const isReadOnly = isAdmin || isLocked;
         const subIndex = section.assigned_subjects.findIndex(s => Number(s.subject_id) === subjectId);
         const sub = section.assigned_subjects[subIndex];
         if (!sub) return;
@@ -2679,13 +2815,13 @@ const App = (() => {
                                 data-quarter="${state.gradingQuarter}"
                                 data-units="${sub.units}"
                                 value="${currentVal !== '' ? Number(currentVal) : ''}"
-                                placeholder="50-100"
+                                placeholder="${isReadOnly ? '—' : '50-100'}"
                                 onfocus="App.onGradeCellFocus(this)"
                                 onblur="App.onGradeCellBlur(this)"
                                 onkeydown="App.onGradeCellKeyDown(event, this)"
                                 oninput="App.onLiveGradeCellInput(this)"
-                                ${isLocked ? 'disabled readonly' : ''} class="w-24 px-2.5 py-1.5 text-center font-bold text-sm rounded-xl border ${evalInfo.inputClass} ${isLocked ? 'bg-slate-100 opacity-80 cursor-not-allowed text-[#475569]' : 'focus:border-[#17243A] focus:ring-2 focus:ring-[#5276A7]/25 outline-none'}">
-                            ${isLocked ? '' : `<div class="hidden sm:inline-flex items-center gap-1">${presetChips}</div>`}
+                                ${isReadOnly ? 'disabled readonly' : ''} class="w-24 px-2.5 py-1.5 text-center font-bold text-sm rounded-xl border ${evalInfo.inputClass} ${isReadOnly ? 'bg-slate-100 opacity-80 cursor-not-allowed text-[#475569]' : 'focus:border-[#17243A] focus:ring-2 focus:ring-[#5276A7]/25 outline-none'}">
+                            ${isReadOnly ? '' : `<div class="hidden sm:inline-flex items-center gap-1">${presetChips}</div>`}
                         </div>
                     </td>
                     <td class="py-2.5 px-3.5 text-center font-mono text-xs sm:text-sm font-semibold text-[#17243A]" data-weighted-cell="${st.id}">
@@ -2710,7 +2846,10 @@ const App = (() => {
                         &bull; ${escapeHtml(section.section_name)} (${escapeHtml(state.gradingQuarter)})
                         ${sub.instructor ? `&bull; Teacher: <strong class="text-[#17243A]">${escapeHtml(sub.instructor)}</strong>` : ''}
                     </span>
+                    ${isAdmin ? `<span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">🔒 Admin View &bull; Read-Only</span>` : ''}
                 </div>
+                <span class="text-xs text-[#475569] font-medium">Policy: Pass &ge; ${GRADING_POLICY.passingGrade} &bull; Honor Floor &ge; ${GRADING_POLICY.honorSubjectFloor}</span>
+            </div>
                 <span class="text-xs text-[#475569] font-medium">Policy: Pass &ge; ${GRADING_POLICY.passingGrade} &bull; Honor Floor &ge; ${GRADING_POLICY.honorSubjectFloor}</span>
             </div>
             <div class="flex-1 overflow-auto custom-scrollbar">
@@ -2752,6 +2891,7 @@ const App = (() => {
     }
 
     function renderMasterSectionGradeSheet(container, section, standings, subjectLocksMap = {}, enforceLocks = false) {
+        const isAdmin = state.currentUser?.role === 'admin';
         const subjects = section.assigned_subjects || [];
         const rankByStudentId = {};
         standings.rankedRows.forEach(r => {
@@ -2796,7 +2936,7 @@ const App = (() => {
             const inputsHtml = row.subjectResults.map((sr, cIdx) => {
                 const val = sr.grade !== null ? sr.grade : '';
                 const evalInfo = evaluateGradePolicy(sr.grade);
-                const isSubLocked = enforceLocks && Boolean(subjectLocksMap[sr.subject_id]);
+                const isSubLocked = isAdmin || (enforceLocks && Boolean(subjectLocksMap[sr.subject_id]));
                 return `
                     <td class="py-2 px-1.5 text-center border-l border-[#D8DEE8]/50">
                         <input type="number" step="0.01" min="50" max="100"
@@ -2882,10 +3022,11 @@ const App = (() => {
 
         container.innerHTML = `
             <div class="px-4 py-3 bg-[#F5F7FA] border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 shrink-0">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                     <h3 class="font-display font-bold text-[#17243A] text-sm sm:text-base">
                         Master Grade Sheet — ${escapeHtml(section.section_name)} (${escapeHtml(section.year_level)}) &bull; ${escapeHtml(state.gradingQuarter)}
                     </h3>
+                    ${isAdmin ? `<span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">🔒 Admin View &bull; Read-Only</span>` : ''}
                     <span class="text-xs text-[#475569] hidden sm:inline">
                         &bull; Click any subject column header to switch to single-subject focus mode
                     </span>
@@ -3135,6 +3276,14 @@ const App = (() => {
             event.preventDefault();
             jumpToNextEmptyGradeCell();
             return;
+        }
+
+        // Admin has read-only access to grades: prevent stepper shortcuts
+        if (state.currentUser?.role === 'admin') {
+            if (key === '+' || key === '=' || key === '-') {
+                event.preventDefault();
+                return;
+            }
         }
 
         // Stepper: + or = increments grade by 1; - decrements by 1
@@ -3408,6 +3557,7 @@ const App = (() => {
     }
 
     async function onGradeCellBlur(inputEl) {
+        if (state.currentUser?.role === 'admin') return;
         const autoSaveEnabled = document.getElementById('autoSaveGradesToggle')?.checked;
         if (!autoSaveEnabled) return;
 
@@ -3457,6 +3607,10 @@ const App = (() => {
     }
 
     async function setSingleStudentGrade(studentId, sectionId, subjectId, gradeVal) {
+        if (state.currentUser?.role === 'admin') {
+            showToast('Administrators have read-only access to grades.', 'warning');
+            return;
+        }
         const inp = document.getElementById(`cell_${studentId}_${subjectId}`);
         if (inp) {
             inp.value = gradeVal;
@@ -3467,6 +3621,10 @@ const App = (() => {
     }
 
     async function quickFillEmptyGrades(gradeVal) {
+        if (state.currentUser?.role === 'admin') {
+            showToast('Administrators have read-only access to grades.', 'warning');
+            return;
+        }
         const inputs = Array.from(document.querySelectorAll('#gradingSheetContainer input[data-grade-input="true"]'));
         const emptyInputs = inputs.filter(inp => inp.value.trim() === '');
         if (emptyInputs.length === 0) {
@@ -3502,6 +3660,7 @@ const App = (() => {
     }
 
     function onLiveGradeCellInput(inputEl) {
+        if (state.currentUser?.role === 'admin') return;
         updateSaveStatusBadge('dirty');
         const stId = Number(inputEl.getAttribute('data-student-id'));
         const secId = Number(inputEl.getAttribute('data-section-id'));
@@ -3523,6 +3682,7 @@ const App = (() => {
     }
 
     function onMasterSheetCellInput(studentId, sectionId) {
+        if (state.currentUser?.role === 'admin') return;
         updateSaveStatusBadge('dirty');
         const section = state.sections.find(s => s.id === Number(sectionId));
         if (!section) return;
@@ -3612,13 +3772,13 @@ const App = (() => {
 
     async function saveCurrentGradesSheet() {
         const isAdmin = state.currentUser?.role === 'admin';
+        if (isAdmin) {
+            showToast('Administrators have read-only access to grades. Only assigned teachers can encode and edit grades.', 'warning');
+            return;
+        }
         const inputs = Array.from(document.querySelectorAll('#gradingSheetContainer input[data-grade-input="true"]:not([disabled])'));
         if (inputs.length === 0) {
             showToast('All inputs are locked or read-only. Submit an unlock request if you need to rewrite grades.', 'info');
-            return;
-        }
-        if (inputs.length === 0) {
-            showToast('No grade inputs to save.', 'info');
             return;
         }
 
@@ -3643,11 +3803,11 @@ const App = (() => {
         }
 
         const saveBtn = document.getElementById('saveGradesBtn');
-        if (saveBtn) saveBtn.disabled = true;
+        setButtonLoading(saveBtn, true, 'Saving All Grades...');
         updateSaveStatusBadge('saving');
 
         try {
-            const res = await apiRequest('save_grades', { entries });
+            const res = await apiRequest('save_grades', { entries }, 'Saving Quarterly Grades...');
             applySystemState(res);
             updateSaveStatusBadge('saved');
             showToast(res.message, 'success');
@@ -3655,7 +3815,7 @@ const App = (() => {
             updateSaveStatusBadge('dirty');
             showToast(err.message, 'error');
         } finally {
-            if (saveBtn) saveBtn.disabled = false;
+            setButtonLoading(saveBtn, false);
         }
     }
 
@@ -3691,12 +3851,25 @@ const App = (() => {
         return '';
     }
 
-    function printInstitutionalHeaderHtml(title, subtitle, section, quarterTitle) {
+    function printInstitutionalHeaderHtml(title, subtitle, target, quarterTitle, isGradeLevel = false) {
         const currentDate = new Date().toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
         });
+        const subMetaHtml = isGradeLevel
+            ? `
+                <span><strong>Grade Level:</strong> ${escapeHtml(target.yearLevel || target)} (${target.sections ? target.sections.length : 0} Sections)</span>
+                <span><strong>Evaluation Period:</strong> ${escapeHtml(quarterTitle)}</span>
+                <span><strong>Sections Included:</strong> ${escapeHtml((target.sections || []).map(s => s.section_name).join(', '))}</span>
+                <span><strong>Date Printed:</strong> ${currentDate}</span>
+              `
+            : `
+                <span><strong>Section:</strong> ${escapeHtml(target.section_name)} (${escapeHtml(target.year_level)})</span>
+                <span><strong>Evaluation Period:</strong> ${escapeHtml(quarterTitle)}</span>
+                <span><strong>Class Adviser:</strong> ${escapeHtml(target.adviser || 'Unassigned')}</span>
+                <span><strong>Date Printed:</strong> ${currentDate}</span>
+              `;
         return `
             <div class="hidden print-only-block mb-3 pb-3 border-b-2 border-slate-900 text-slate-900">
                 <div class="text-center">
@@ -3705,11 +3878,8 @@ const App = (() => {
                     <p class="text-[10pt] font-bold text-[#17243A] uppercase mt-0.5">${title}</p>
                     <p class="text-[8pt] text-slate-600 italic mt-0.5">${subtitle}</p>
                 </div>
-                <div class="flex items-center justify-between text-[8pt] pt-2 border-t border-slate-300 mt-2 font-mono">
-                    <span><strong>Section:</strong> ${escapeHtml(section.section_name)} (${escapeHtml(section.year_level)})</span>
-                    <span><strong>Evaluation Period:</strong> ${escapeHtml(quarterTitle)}</span>
-                    <span><strong>Class Adviser:</strong> ${escapeHtml(section.adviser || 'Unassigned')}</span>
-                    <span><strong>Date Printed:</strong> ${currentDate}</span>
+                <div class="flex items-center justify-between text-[8pt] pt-2 border-t border-slate-300 mt-2 font-mono flex-wrap gap-2">
+                    ${subMetaHtml}
                 </div>
             </div>
         `;
@@ -3747,47 +3917,1051 @@ const App = (() => {
         }, 1200);
     }
 
-    function renderReportsView() {
-        const secSelect = document.getElementById('reportSectionSelect');
-        const qtrSelect = document.getElementById('reportQuarterSelect');
-        const container = document.getElementById('quarterlyReportContainer');
-        if (!secSelect || !qtrSelect || !container) return;
+    function updateReportScopeUiState() {
+        const sectionBtn = document.getElementById('reportScopeSectionBtn');
+        const glBtn = document.getElementById('reportScopeGradeLevelBtn');
+        const secWrap = document.getElementById('reportSectionSelectWrap');
+        const glWrap = document.getElementById('reportGradeLevelSelectWrap');
+        const secActions = document.getElementById('reportSectionActions');
+        const glActions = document.getElementById('reportGradeLevelActions');
+        const notice = document.getElementById('reportScopeNotice');
 
-        if (state.sections.length === 0) {
-            secSelect.innerHTML = `<option value="">No sections available</option>`;
+        if (state.reportScope === 'grade_level') {
+            sectionBtn?.classList.remove('bg-[#17243A]', 'text-white', 'shadow-2xs');
+            sectionBtn?.classList.add('text-[#475569]', 'hover:text-[#17243A]');
+            glBtn?.classList.add('bg-[#17243A]', 'text-white', 'shadow-2xs');
+            glBtn?.classList.remove('text-[#475569]', 'hover:text-[#17243A]');
+
+            secWrap?.classList.add('hidden');
+            glWrap?.classList.remove('hidden');
+            secActions?.classList.add('hidden');
+            glActions?.classList.remove('hidden');
+            glActions?.classList.add('flex');
+
+            if (notice) notice.textContent = 'Comparing Top 1 students from Section 1 to N and ranking all sections combined.';
+        } else {
+            glBtn?.classList.remove('bg-[#17243A]', 'text-white', 'shadow-2xs');
+            glBtn?.classList.add('text-[#475569]', 'hover:text-[#17243A]');
+            sectionBtn?.classList.add('bg-[#17243A]', 'text-white', 'shadow-2xs');
+            sectionBtn?.classList.remove('text-[#475569]', 'hover:text-[#17243A]');
+
+            secWrap?.classList.remove('hidden');
+            glWrap?.classList.add('hidden');
+            secActions?.classList.remove('hidden');
+            glActions?.classList.add('hidden');
+            glActions?.classList.remove('flex');
+
+            if (notice) notice.textContent = 'Viewing detailed per-subject grade sheet & honors for a single section.';
+        }
+
+        const openGradingLabel = document.getElementById('openGradingBtnLabel');
+        if (openGradingLabel) {
+            openGradingLabel.textContent = (state.currentUser?.role === 'admin') ? 'View Section Grades (Read-Only)' : 'Edit Section Grades';
+        }
+    }
+
+    function setReportScope(scope = 'section') {
+        state.reportScope = scope === 'grade_level' ? 'grade_level' : 'section';
+        updateReportScopeUiState();
+        if (state.currentView === 'reports') {
+            updateBrowserUrl({
+                page: 'reports',
+                scope: state.reportScope,
+                section_id: state.reportScope === 'section' ? state.reportSectionId : null,
+                grade_level: state.reportScope === 'grade_level' ? state.reportGradeLevel : null,
+                quarter: state.reportQuarter
+            }, true);
+        }
+        renderReportsView();
+    }
+
+    function computeGradeLevelStandings(yearLevel, quarter = 'Q1') {
+        const levelSections = (state.sections || []).filter(s => s.year_level === yearLevel);
+        if (levelSections.length === 0) return null;
+
+        const sectionSummaries = [];
+        const allStudentsList = [];
+
+        levelSections.forEach((sec, secIdx) => {
+            const secStandings = computeSectionStandings(sec.id, quarter);
+            if (!secStandings) return;
+
+            const validRanked = secStandings.rankedRows.filter(r => r.weightedAverage !== null);
+            const top1StudentRow = validRanked.find(r => r.rank === 1) || (validRanked.length > 0 ? validRanked[0] : null);
+
+            sectionSummaries.push({
+                sectionIndex: secIdx + 1,
+                section: sec,
+                standings: secStandings,
+                top1: top1StudentRow,
+                top1OverallRank: null,
+                isOverallTop1: false,
+                studentCount: secStandings.rankedRows.length,
+                qualifiersCount: secStandings.qualifiers.length,
+                average: validRanked.length > 0
+                    ? validRanked.reduce((acc, r) => acc + r.weightedAverage, 0) / validRanked.length
+                    : null,
+            });
+
+            secStandings.rankedRows.forEach(r => {
+                allStudentsList.push({
+                    ...r,
+                    section: sec,
+                    sectionIndex: secIdx + 1,
+                    sectionRank: r.rank,
+                    overallRank: null,
+                });
+            });
+        });
+
+        // Rank ALL students across all sections in this grade level
+        allStudentsList.sort((a, b) => {
+            if (a.weightedAverage === null && b.weightedAverage === null) {
+                return a.student.full_name.localeCompare(b.student.full_name);
+            }
+            if (a.weightedAverage === null) return 1;
+            if (b.weightedAverage === null) return -1;
+            if (Math.abs(b.weightedAverage - a.weightedAverage) > 0.0001) {
+                return b.weightedAverage - a.weightedAverage;
+            }
+            return a.student.full_name.localeCompare(b.student.full_name);
+        });
+
+        let currentOverallRank = 0;
+        let lastAvg = null;
+        allStudentsList.forEach((r, index) => {
+            if (r.weightedAverage !== null) {
+                if (lastAvg === null || Math.abs(r.weightedAverage - lastAvg) > 0.0001) {
+                    currentOverallRank = index + 1;
+                    lastAvg = r.weightedAverage;
+                }
+                r.overallRank = currentOverallRank;
+            } else {
+                r.overallRank = null;
+            }
+        });
+
+        // Map overall ranks back into sectionSummaries for each section's top 1
+        sectionSummaries.forEach(ss => {
+            if (ss.top1) {
+                const matchInOverall = allStudentsList.find(r => r.student.id === ss.top1.student.id);
+                if (matchInOverall) {
+                    ss.top1OverallRank = matchInOverall.overallRank;
+                    ss.isOverallTop1 = (matchInOverall.overallRank === 1);
+                }
+            }
+        });
+
+        const overallTop1 = allStudentsList.find(r => r.overallRank === 1) || null;
+        const overallQualifiers = allStudentsList.filter(r => r.isQualified);
+
+        // Assign honorRank for overallQualifiers (starts from Rank 1 for the highest honor qualifier)
+        let currentHonorRank = 0;
+        let lastHonorAvg = null;
+        overallQualifiers.forEach((r, index) => {
+            if (lastHonorAvg === null || Math.abs(r.weightedAverage - lastHonorAvg) > 0.0001) {
+                currentHonorRank = index + 1;
+                lastHonorAvg = r.weightedAverage;
+            }
+            r.honorRank = currentHonorRank;
+        });
+
+        const topHonorQualifier = overallQualifiers.find(r => r.honorRank === 1) || null;
+
+        return {
+            yearLevel,
+            quarter,
+            sections: levelSections,
+            sectionSummaries,
+            allStudentsList,
+            overallQualifiers,
+            overallTop1,
+            totalStudentsCount: allStudentsList.length,
+            totalQualifiersCount: overallQualifiers.length,
+        };
+    }
+
+    let currentGlStandingsCache = null;
+
+    function setReportHonorTierFilter(tier) {
+        state.reportHonorTierFilter = tier || 'all';
+        document.querySelectorAll('.gl-honor-tier-btn').forEach(btn => {
+            const t = btn.getAttribute('data-honor-tier');
+            if (t === state.reportHonorTierFilter) {
+                btn.className = 'gl-honor-tier-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-[#17243A] text-white shadow-2xs cursor-pointer';
+            } else {
+                btn.className = 'gl-honor-tier-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8] cursor-pointer';
+            }
+        });
+        renderGradeLevelHonorsRoster();
+    }
+
+    function setReportHonorSectionFilter(secId) {
+        state.reportHonorSectionFilter = secId;
+        renderGradeLevelHonorsRoster();
+    }
+
+    function onReportHonorSearch(val) {
+        state.reportHonorSearch = (val || '').trim().toLowerCase();
+        renderGradeLevelHonorsRoster();
+    }
+
+    function getFilteredHonorQualifiers() {
+        if (!currentGlStandingsCache) return [];
+        const tier = state.reportHonorTierFilter || 'all';
+        const secFilter = state.reportHonorSectionFilter || 'all';
+        const q = (state.reportHonorSearch || '').toLowerCase();
+
+        return currentGlStandingsCache.overallQualifiers.filter(r => {
+            if (secFilter !== 'all' && String(r.section.id) !== String(secFilter)) {
+                return false;
+            }
+            const avg = r.weightedAverage;
+            if (tier === 'highest' && !(avg >= 97.995)) return false;
+            if (tier === 'high' && !(avg >= 94.995 && avg < 97.995)) return false;
+            if (tier === 'honors' && !(avg >= 89.495 && avg < 94.995)) return false;
+
+            if (q) {
+                const name = (r.student.full_name || '').toLowerCase();
+                const no = (r.student.student_no || '').toLowerCase();
+                const secName = (r.section.section_name || '').toLowerCase();
+                if (!name.includes(q) && !no.includes(q) && !secName.includes(q)) return false;
+            }
+            return true;
+        });
+    }
+
+    function renderGradeLevelHonorsRoster() {
+        if (!currentGlStandingsCache) return;
+        const desktopTbody = document.getElementById('gradeLevelHonorsTableBody');
+        const mobileContainer = document.getElementById('gradeLevelHonorsMobileList');
+        const printTbody = document.getElementById('gradeLevelHonorsPrintTableBody');
+        const countEl = document.getElementById('glHonorFilteredCount');
+
+        const filtered = getFilteredHonorQualifiers();
+
+        if (countEl) {
+            const total = currentGlStandingsCache.totalQualifiersCount;
+            countEl.textContent = `Showing ${filtered.length} of ${total} honor student${total === 1 ? '' : 's'}`;
+        }
+
+        if (filtered.length === 0) {
+            const emptyHtml = `
+                <div class="py-10 text-center text-sm text-[#475569] font-medium bg-white rounded-xl border border-dashed border-[#D8DEE8] p-6">
+                    <p>No honor students match the selected filter or search query.</p>
+                </div>
+            `;
+            if (desktopTbody) desktopTbody.innerHTML = `<tr><td colspan="6" class="py-10 text-center text-sm text-[#475569] font-medium">No honor students match the selected filter or search query.</td></tr>`;
+            if (mobileContainer) mobileContainer.innerHTML = emptyHtml;
+            if (printTbody) printTbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-xs text-slate-500">No honor students found matching the selected criteria.</td></tr>`;
+            return;
+        }
+
+        if (desktopTbody) {
+            desktopTbody.innerHTML = filtered.map(q => {
+                const distinction = getHonorDistinction(q.weightedAverage);
+                const rank = q.honorRank || q.overallRank || 1;
+                const medal = rank === 1 ? '🥇 ' : rank === 2 ? '🥈 ' : rank === 3 ? '🥉 ' : '';
+                const rankClass = rank === 1
+                    ? 'bg-[#80530F] text-white shadow-2xs ring-2 ring-[#F0D296]/60'
+                    : rank === 2
+                        ? 'bg-[#2C4870] text-white shadow-2xs'
+                        : rank === 3
+                            ? 'bg-[#9A3412] text-white shadow-2xs'
+                            : 'bg-[#17243A] text-white';
+
+                const distinctionBadge = distinction === 'With Highest Honors'
+                    ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] shadow-2xs">🏆 With Highest Honors</span>`
+                    : distinction === 'With High Honors'
+                        ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">🎖️ With High Honors</span>`
+                        : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">🎖️ With Honors</span>`;
+
+                return `
+                    <tr class="hover:bg-[#EBF1F8]/30 transition text-sm">
+                        <td class="py-3 px-3 whitespace-nowrap text-center">
+                            <span class="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold ${rankClass}">
+                                ${medal}Rank #${rank}
+                            </span>
+                        </td>
+                        <td class="py-3 px-3 font-mono text-xs font-semibold text-[#475569] whitespace-nowrap">
+                            ${escapeHtml(q.student.student_no)}
+                        </td>
+                        <td class="py-3 px-3.5 whitespace-nowrap">
+                            <div class="flex items-center gap-2">
+                                <span class="font-display font-bold text-[#17243A] text-sm">${escapeHtml(q.student.full_name)}</span>
+                                ${genderBadgeHtml(q.student.gender, true)}
+                            </div>
+                        </td>
+                        <td class="py-3 px-3 whitespace-nowrap">
+                            <div class="font-semibold text-xs text-[#17243A]">${escapeHtml(q.section.section_name)}</div>
+                            <div class="text-[11px] text-[#475569]">Adviser: ${escapeHtml(q.section.adviser || 'Unassigned')}</div>
+                        </td>
+                        <td class="py-3 px-3 text-center whitespace-nowrap">
+                            <div class="inline-flex flex-col items-center">
+                                <span class="font-display font-extrabold text-sm text-[#0F766E] bg-[#D5F0EA] px-3 py-1 rounded-xl border border-[#99D8CC]">
+                                    ${q.weightedAverage.toFixed(2)}${q.weightedAverage < 90 ? ` &rarr; ${Math.round(q.weightedAverage)}` : ''}
+                                </span>
+                                ${q.weightedAverage < 90 ? `<span class="text-[11px] font-bold text-[#0F766E] mt-0.5">Rounds to 90</span>` : ''}
+                            </div>
+                        </td>
+                        <td class="py-3 px-3.5 whitespace-nowrap text-center">
+                            ${distinctionBadge}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        if (mobileContainer) {
+            mobileContainer.innerHTML = filtered.map(q => {
+                const distinction = getHonorDistinction(q.weightedAverage);
+                const rank = q.honorRank || q.overallRank || 1;
+                const medal = rank === 1 ? '🥇 ' : rank === 2 ? '🥈 ' : rank === 3 ? '🥉 ' : '';
+                const rankClass = rank === 1
+                    ? 'bg-[#80530F] text-white'
+                    : rank === 2
+                        ? 'bg-[#2C4870] text-white'
+                        : rank === 3
+                            ? 'bg-[#9A3412] text-white'
+                            : 'bg-[#17243A] text-white';
+
+                const distinctionBadge = distinction === 'With Highest Honors'
+                    ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]">🏆 With Highest Honors</span>`
+                    : distinction === 'With High Honors'
+                        ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">🎖️ With High Honors</span>`
+                        : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">🎖️ With Honors</span>`;
+
+                return `
+                    <div class="bg-white rounded-xl border border-[#D8DEE8] p-4 shadow-2xs transition hover:border-[#5276A7]">
+                        <div class="flex items-center justify-between gap-2 pb-2.5 border-b border-[#D8DEE8]/70">
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${rankClass}">
+                                ${medal}Level Rank #${rank}
+                            </span>
+                            <div>${distinctionBadge}</div>
+                        </div>
+                        <div class="pt-3 flex items-start justify-between gap-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <h5 class="font-display font-bold text-base text-[#17243A]">
+                                        ${escapeHtml(q.student.full_name)}
+                                    </h5>
+                                    ${genderBadgeHtml(q.student.gender, true)}
+                                </div>
+                                <p class="font-mono text-xs text-[#475569] mt-0.5">${escapeHtml(q.student.student_no)}</p>
+                                <div class="mt-1.5 text-xs text-[#475569]">
+                                    <span class="font-semibold text-[#17243A]">Sec: ${escapeHtml(q.section.section_name)}</span> &bull; Adv: ${escapeHtml(q.section.adviser || 'Unassigned')}
+                                </div>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <span class="text-[11px] font-semibold text-[#475569] block">Gen. Average</span>
+                                <span class="font-display font-extrabold text-lg text-[#0F766E] block">
+                                    ${q.weightedAverage.toFixed(2)}
+                                </span>
+                                ${q.weightedAverage < 90 ? `<span class="text-[10px] font-bold text-[#0F766E] block">Rounds to 90</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        if (printTbody) {
+            printTbody.innerHTML = filtered.map(q => {
+                const distinction = getHonorDistinction(q.weightedAverage);
+                const rank = q.honorRank || q.overallRank || 1;
+                return `
+                    <tr class="text-xs">
+                        <td class="py-2 px-2.5 font-bold text-center">Rank #${rank}</td>
+                        <td class="py-2 px-2.5 font-mono text-center">${escapeHtml(q.student.student_no)}</td>
+                        <td class="py-2 px-3 font-bold">${escapeHtml(q.student.full_name)} (${normalizeGenderClient(q.student.gender)})</td>
+                        <td class="py-2 px-2.5">${escapeHtml(q.section.section_name)}</td>
+                        <td class="py-2 px-2.5 text-center font-bold text-[#0F766E]">${q.weightedAverage.toFixed(2)}${q.weightedAverage < 90 ? ` (${Math.round(q.weightedAverage)})` : ''}</td>
+                        <td class="py-2 px-3 text-center font-bold text-[#80530F]">${escapeHtml(distinction)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+
+
+    function setReportGradeLevelFilter(filter) {
+        state.reportGradeLevelFilter = filter;
+        document.querySelectorAll('.gl-filter-btn').forEach(btn => {
+            const f = btn.getAttribute('data-gl-filter');
+            if (f === filter) {
+                btn.className = 'gl-filter-btn px-3 py-1.5 rounded-lg text-xs font-bold transition bg-[#17243A] text-white shadow-2xs cursor-pointer';
+            } else {
+                btn.className = 'gl-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8] cursor-pointer';
+            }
+        });
+        renderGradeLevelRankingRows();
+    }
+
+    function onReportGradeLevelSearch(val) {
+        state.reportGradeLevelSearch = (val || '').trim().toLowerCase();
+        renderGradeLevelRankingRows();
+    }
+
+    function renderGradeLevelRankingRows() {
+        if (!currentGlStandingsCache) return;
+        const tbody = document.getElementById('gradeLevelRankingTableBody');
+        const countEl = document.getElementById('glRankingFilteredCount');
+        if (!tbody) return;
+
+        const glStandings = currentGlStandingsCache;
+        const q = (state.reportGradeLevelSearch || '').toLowerCase();
+        const f = state.reportGradeLevelFilter || 'all';
+
+        let list = glStandings.allStudentsList.filter(r => {
+            if (f === 'qualifiers' && !r.isQualified) return false;
+            if (f === 'female' && normalizeGenderClient(r.student.gender) !== 'Female') return false;
+            if (f === 'male' && normalizeGenderClient(r.student.gender) !== 'Male') return false;
+            if (q) {
+                const name = (r.student.full_name || '').toLowerCase();
+                const no = (r.student.student_no || '').toLowerCase();
+                const sec = (r.section.section_name || '').toLowerCase();
+                if (!name.includes(q) && !no.includes(q) && !sec.includes(q)) return false;
+            }
+            return true;
+        });
+
+        if (countEl) countEl.textContent = `${list.length} student${list.length === 1 ? '' : 's'}`;
+
+        if (list.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="py-10 text-center text-sm text-[#475569]">No matching students found in ${escapeHtml(glStandings.yearLevel)}.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = list.map(r => {
+            const distinction = getHonorDistinction(r.weightedAverage);
+            const isFailing = r.isFailingOverall;
+            const avgColor = r.weightedAverage === null
+                ? 'text-[#475569]'
+                : isFailing
+                    ? 'text-[#842D60]'
+                    : meetsHonorAveragePolicy(r.weightedAverage)
+                        ? 'text-[#0F766E]'
+                        : 'text-[#17243A]';
+
+            const rankPill = r.overallRank
+                ? `<span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${
+                    r.overallRank === 1
+                        ? 'bg-[#17243A] text-white shadow-2xs ring-2 ring-[#F0D296]'
+                        : r.overallRank <= 3
+                            ? 'bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]'
+                            : 'bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]'
+                }">${r.overallRank}</span>`
+                : '—';
+
+            let statusPill = '';
+            if (r.isQualified) {
+                const roundNote = r.weightedAverage < 90 ? ' (Rounds to 90)' : '';
+                statusPill = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">
+                    <span>✓</span><span>Honor Qualified${roundNote}</span>
+                </span>`;
+            } else if (r.isFailingOverall) {
+                statusPill = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]">
+                    <span>✕</span><span>${escapeHtml(r.statusReason)}</span>
+                </span>`;
+            } else if (r.hasBelow85) {
+                statusPill = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]">
+                    <span>⚠</span><span>${escapeHtml(r.statusReason)}</span>
+                </span>`;
+            } else {
+                statusPill = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#F5F7FA] text-[#475569] border border-[#D8DEE8]">
+                    <span>${escapeHtml(r.statusReason)}</span>
+                </span>`;
+            }
+
+            return `
+                <tr class="hover:bg-[#F5F7FA] transition text-sm ${r.isQualified ? 'bg-[#D5F0EA]/15' : ''}">
+                    <td class="py-2.5 px-3 whitespace-nowrap text-center">${rankPill}</td>
+                    <td class="py-2.5 px-3.5 whitespace-nowrap">
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-display font-bold text-[#17243A] text-sm">${escapeHtml(r.student.full_name)}</span>
+                            ${genderBadgeHtml(r.student.gender, true)}
+                        </div>
+                        <div class="font-mono text-xs text-[#475569]">${escapeHtml(r.student.student_no)}</div>
+                    </td>
+                    <td class="py-2.5 px-3 whitespace-nowrap">
+                        <div class="font-semibold text-xs text-[#17243A]">${escapeHtml(r.section.section_name)}</div>
+                        <div class="text-[11px] text-[#475569]">Adviser: ${escapeHtml(r.section.adviser || 'Unassigned')}</div>
+                    </td>
+
+                    <td class="py-2.5 px-3 text-center whitespace-nowrap">
+                        <span class="font-display font-extrabold text-sm ${avgColor}">
+                            ${r.weightedAverage !== null ? r.weightedAverage.toFixed(2) : '—'}
+                        </span>
+                    </td>
+                    <td class="py-2.5 px-3.5 whitespace-nowrap">
+                        <div class="flex items-center gap-2">
+                            ${distinction ? `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">🎖️ ${escapeHtml(distinction)}</span>` : ''}
+                            ${statusPill}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+
+    function renderGradeLevelReport(container, activeGradeLevel, quarterTitle) {
+        const glStandings = computeGradeLevelStandings(activeGradeLevel, state.reportQuarter);
+        if (!glStandings || glStandings.sections.length === 0) {
             container.innerHTML = `
                 <div class="bg-white rounded-2xl border border-[#D8DEE8] p-12 text-center">
-                    <h3 class="font-display font-bold text-[#17243A] text-base">No Sections Available for Quarterly Report</h3>
-                    <p class="text-sm text-[#475569] mt-1">Load the 28-unit sample curriculum and grades to see automated section rankings and the Honor Qualifier pullout.</p>
-                    <button type="button" onclick="App.seedSampleData()" class="mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] cursor-pointer">
-                        Load 28-Unit Demo &amp; Sample Grades
-                    </button>
+                    <h3 class="font-display font-bold text-[#17243A] text-base">No Sections Found under ${escapeHtml(activeGradeLevel)}</h3>
+                    <p class="text-sm text-[#475569] mt-1">Please select another grade level or create sections under ${escapeHtml(activeGradeLevel)}.</p>
                 </div>
             `;
             return;
         }
 
-        secSelect.innerHTML = state.sections.map(sec => `
-            <option value="${sec.id}" ${Number(state.reportSectionId) === sec.id ? 'selected' : ''}>
-                ${escapeHtml(sec.section_name)} — ${escapeHtml(sec.year_level)} (${formatUnits(sec.total_units)} units)
-            </option>
-        `).join('');
+        currentGlStandingsCache = glStandings;
 
-        const activeSection = state.sections.find(s => s.id === Number(state.reportSectionId)) || state.sections[0];
-        state.reportSectionId = activeSection.id;
-        qtrSelect.value = state.reportQuarter;
+        // Count breakdown for DepEd Honor tiers
+        const countHighest = glStandings.overallQualifiers.filter(q => q.weightedAverage >= 97.995).length;
+        const countHigh = glStandings.overallQualifiers.filter(q => q.weightedAverage >= 94.995 && q.weightedAverage < 97.995).length;
+        const countWithHonors = glStandings.overallQualifiers.filter(q => q.weightedAverage >= 89.495 && q.weightedAverage < 94.995).length;
 
+        // Grade Level Champion & Valedictorian Podium Spotlight
+        const topHonorStudents = glStandings.overallQualifiers.filter(r => (r.honorRank || 1) === 1);
+        const highestHonorStudents = glStandings.overallQualifiers.filter(r => r.weightedAverage >= 97.995);
+        const overallTopRankStudents = glStandings.allStudentsList.filter(r => r.overallRank === 1 && r.weightedAverage !== null);
+        const spotlightStudents = highestHonorStudents.length > 0 
+            ? highestHonorStudents 
+            : topHonorStudents.length > 0 
+                ? topHonorStudents 
+                : glStandings.overallQualifiers.length > 0 
+                    ? [glStandings.overallQualifiers[0]] 
+                    : overallTopRankStudents;
+
+        let spotlightHtml = '';
+        if (spotlightStudents.length > 0) {
+            const isTied = spotlightStudents.length > 1;
+            const cards = spotlightStudents.map(top => {
+                const dist = getHonorDistinction(top.weightedAverage);
+                const isHighest = top.weightedAverage >= 97.995;
+                const distinctionPill = isHighest
+                    ? `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] shadow-sm tracking-wide uppercase">
+                        🏆 With Highest Honors (DepEd Valedictorian Tier)
+                       </span>`
+                    : dist
+                        ? `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] shadow-sm tracking-wide uppercase">
+                            👑 Overall Level Champion &bull; ${escapeHtml(dist)}
+                           </span>`
+                        : `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] shadow-sm tracking-wide uppercase">
+                            👑 Overall Level Top 1
+                           </span>`;
+
+                return `
+                    <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#17243A] via-[#1E304F] to-[#2C4870] text-white p-5 sm:p-7 shadow-md border-2 border-[#F0D296]/50">
+                        <div class="absolute -right-10 -bottom-10 w-48 h-48 bg-[#80530F]/20 rounded-full blur-3xl pointer-events-none"></div>
+                        <div class="absolute -left-10 -top-10 w-40 h-40 bg-[#5276A7]/20 rounded-full blur-2xl pointer-events-none"></div>
+
+                        <div class="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-2 flex-wrap mb-2.5">
+                                    ${distinctionPill}
+                                    ${isTied ? `<span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 text-white">🤝 Tied for Rank #1</span>` : ''}
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-13 h-13 sm:w-15 sm:h-15 rounded-2xl bg-gradient-to-br from-[#FFF0D1] to-[#F0D296] text-[#80530F] font-black text-2xl sm:text-3xl flex items-center justify-center shrink-0 shadow-md ring-4 ring-white/10">
+                                        🥇
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <h3 class="font-display font-extrabold text-xl sm:text-2xl text-white tracking-tight truncate">
+                                            ${escapeHtml(top.student.full_name)}
+                                        </h3>
+                                        <div class="flex items-center gap-2 text-xs sm:text-sm text-slate-300 mt-1 flex-wrap">
+                                            <span class="font-mono bg-white/10 px-2 py-0.5 rounded text-white">${escapeHtml(top.student.student_no)}</span>
+                                            <span>&bull;</span>
+                                            <span>${normalizeGenderClient(top.student.gender)}</span>
+                                            <span>&bull;</span>
+                                            <span>Grade Level Rank: <strong class="text-[#FFF0D1]">#${top.honorRank || top.overallRank || 1}</strong></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 flex items-center gap-2.5 text-xs sm:text-sm text-slate-300 flex-wrap">
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-white font-semibold">
+                                        🏫 Section: <strong class="text-[#FFF0D1] ml-1">${escapeHtml(top.section.section_name)}</strong>
+                                    </span>
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-white font-semibold">
+                                        👨‍🏫 Adviser: <span class="ml-1">${escapeHtml(top.section.adviser || 'Unassigned')}</span>
+                                    </span>
+                                    
+                                </div>
+                            </div>
+
+                            <div class="shrink-0 flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 bg-white/10 backdrop-blur-xs p-4 sm:p-5 rounded-2xl border border-white/15">
+                                <div class="text-left sm:text-right">
+                                    <span class="text-xs font-bold text-slate-300 uppercase tracking-wider block">Consolidated General Average</span>
+                                    <div class="font-display font-black text-3xl sm:text-4xl text-[#FFF0D1] leading-none mt-1">
+                                        ${top.weightedAverage.toFixed(2)}
+                                    </div>
+                                    ${top.weightedAverage < 90 ? `<span class="text-[11px] font-bold text-[#D5F0EA] block mt-0.5">Rounds to 90.00</span>` : ''}
+                                </div>
+                                
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            spotlightHtml = `
+                <div class="flex flex-col gap-2.5">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-wider text-[#80530F] flex items-center gap-1.5">
+                            <span>👑</span><span>Highest Honor &amp; Grade-Level Champion Spotlight</span>
+                        </span>
+                        <span class="text-xs text-[#475569] font-medium">Rank #1 across all ${glStandings.sections.length} sections</span>
+                    </div>
+                    ${cards}
+                </div>
+            `;
+        } else {
+            spotlightHtml = `
+                <div class="rounded-2xl border-2 border-dashed border-[#D8DEE8] bg-white p-6 text-center text-[#475569]">
+                    <div class="w-12 h-12 rounded-full bg-[#F5F7FA] text-[#80530F] flex items-center justify-center mx-auto text-xl mb-2">
+                        🏆
+                    </div>
+                    <h4 class="font-display font-bold text-[#17243A] text-base">No Honor Qualifiers Recorded Yet</h4>
+                    <p class="text-xs sm:text-sm text-[#475569] mt-1 max-w-md mx-auto">
+                        No students in ${escapeHtml(activeGradeLevel)} currently meet the criteria for honors (General Average &ge; 90.00 or 89.50+ rounded, with no grade below 85) for ${escapeHtml(quarterTitle)}.
+                    </p>
+                </div>
+            `;
+        }
+
+        // Section Top 1 Showcase Cards HTML
+        const top1CardsHtml = glStandings.sectionSummaries.map((ss, idx) => {
+            const sec = ss.section;
+            const top1 = ss.top1;
+            const isOverallTop1 = ss.isOverallTop1;
+            const distinction = top1 ? getHonorDistinction(top1.weightedAverage) : '';
+
+            return `
+                <div class="rounded-2xl border-2 ${isOverallTop1 ? 'border-[#80530F] bg-gradient-to-b from-[#FFF0D1]/60 to-white shadow-sm ring-2 ring-[#F0D296]/50' : 'border-[#D8DEE8] bg-white shadow-2xs'} p-4.5 flex flex-col justify-between transition">
+                    <div>
+                        <div class="flex items-start justify-between gap-2 pb-3 border-b border-[#D8DEE8]/70">
+                            <div>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider ${isOverallTop1 ? 'bg-[#80530F] text-white' : 'bg-[#EBF1F8] text-[#2C4870]'}">
+                                    Section #${idx + 1}
+                                </span>
+                                <h4 class="font-display font-bold text-base text-[#17243A] mt-1 leading-snug">${escapeHtml(sec.section_name)}</h4>
+                                <p class="text-xs text-[#475569] mt-0.5">Adviser: <strong>${escapeHtml(sec.adviser || 'Unassigned')}</strong></p>
+                            </div>
+                            <div class="shrink-0 text-right">
+                                ${isOverallTop1 ? `
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] shadow-2xs">
+                                        👑 Level Top 1
+                                    </span>
+                                ` : ss.top1OverallRank ? `
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]">
+                                        Overall #${ss.top1OverallRank}
+                                    </span>
+                                ` : ''}
+                            </div>
+                        </div>
+
+                        ${top1 ? `
+                            <div class="pt-3.5">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full ${isOverallTop1 ? 'bg-[#80530F] text-white ring-2 ring-[#F0D296]' : 'bg-[#17243A] text-white'} flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                                        #1
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center gap-1.5 flex-wrap">
+                                            <h5 class="font-display font-bold text-sm sm:text-base text-[#17243A] truncate">
+                                                ${escapeHtml(top1.student.full_name)}
+                                            </h5>
+                                            ${genderBadgeHtml(top1.student.gender, true)}
+                                        </div>
+                                        <p class="font-mono text-xs text-[#475569]">${escapeHtml(top1.student.student_no)} &bull; ${formatUnits(sec.total_units)} Units</p>
+                                    </div>
+                                </div>
+
+                                <div class="mt-3.5 grid grid-cols-2 gap-2 bg-[#F5F7FA] rounded-xl p-2.5 text-center border border-[#D8DEE8]/70">
+                                    <div>
+                                        <span class="text-[11px] font-semibold text-[#475569] block">General Average</span>
+                                        <span class="font-display font-extrabold text-base text-[#0F766E]">
+                                            ${top1.weightedAverage.toFixed(2)}${top1.weightedAverage < 90 ? ` &rarr; ${Math.round(top1.weightedAverage)}` : ''}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span class="text-[11px] font-semibold text-[#475569] block">Honor Distinction</span>
+                                        <span class="text-xs font-bold text-[#80530F] block mt-0.5 truncate" title="${escapeHtml(distinction || 'With Honors')}">
+                                            🎖️ ${escapeHtml(distinction || 'With Honors')}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="py-8 text-center text-xs text-[#475569] italic">
+                                Grades pending encoding for this section.
+                            </div>
+                        `}
+                    </div>
+
+                    <div class="pt-3 mt-3.5 border-t border-[#D8DEE8]/70 flex items-center justify-between text-xs text-[#475569]">
+                        <span>${sec.student_count} Enrolled &bull; ${ss.qualifiersCount} Qualifiers</span>
+                        <span class="font-semibold ${top1 && top1.isQualified ? 'text-[#0F766E]' : 'text-[#842D60]'}">
+                            ${top1 && top1.isQualified ? '✓ Honor Qualified' : 'Pending'}
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Printable Table for Section Top 1s
+        const printTop1sTableRowsHtml = glStandings.sectionSummaries.map((ss, idx) => {
+            const sec = ss.section;
+            const top1 = ss.top1;
+            const distinction = top1 ? getHonorDistinction(top1.weightedAverage) : '—';
+            return `
+                <tr class="text-xs">
+                    <td class="py-2 px-2.5 font-bold text-center">Section #${idx + 1}<br><span class="font-normal">${escapeHtml(sec.section_name)}</span></td>
+                    <td class="py-2 px-3">${escapeHtml(sec.adviser || 'Unassigned')}</td>
+                    <td class="py-2 px-2.5 font-mono text-center">${top1 ? escapeHtml(top1.student.student_no) : '—'}</td>
+                    <td class="py-2 px-3.5 font-bold">${top1 ? `${escapeHtml(top1.student.full_name)} (${normalizeGenderClient(top1.student.gender)})` : 'Pending'}</td>
+                    <td class="py-2 px-2.5 text-center font-bold text-[#0F766E]">${top1 && top1.weightedAverage !== null ? top1.weightedAverage.toFixed(2) : '—'}</td>
+                    <td class="py-2 px-3 text-center font-bold text-[#80530F]">${escapeHtml(distinction)}</td>
+                    <td class="py-2 px-2.5 text-center font-bold">${ss.top1OverallRank ? `Rank #${ss.top1OverallRank}` : '—'}</td>
+                </tr>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <!-- Screen-Only Grade Level Header Banner -->
+            <div class="bg-[#17243A] text-white rounded-2xl p-4 sm:p-5 shadow-sm shrink-0 no-print">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2.5 flex-wrap">
+                            <span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]">
+                                🌟 Grade-Level Wide Ranking
+                            </span>
+                            <span class="text-xs sm:text-sm text-slate-300">${escapeHtml(quarterTitle)}</span>
+                        </div>
+                        <h3 class="font-display font-bold text-lg sm:text-xl mt-1">
+                            ${escapeHtml(activeGradeLevel)} — Cross-Section Academic Honors &amp; Rankings
+                        </h3>
+                        <p class="text-xs sm:text-sm text-slate-300 mt-1">
+                            Consolidated Academic Report comparing all ${glStandings.sections.length} Sections: <strong>${escapeHtml(glStandings.sections.map((s, i) => `Sec ${i+1} (${s.section_name})`).join(', '))}</strong>
+                        </p>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
+                        <div class="bg-[#243752] border border-[#5276A7]/40 rounded-xl px-3.5 py-2 text-center">
+                            <span class="text-xs text-slate-300 block">Total Sections</span>
+                            <span class="font-display font-bold text-base text-white">${glStandings.sections.length}</span>
+                        </div>
+                        <div class="bg-[#243752] border border-[#5276A7]/40 rounded-xl px-3.5 py-2 text-center">
+                            <span class="text-xs text-slate-300 block">Total Students</span>
+                            <span class="font-display font-bold text-base text-[#FFF0D1]">${glStandings.totalStudentsCount}</span>
+                        </div>
+                        <div class="bg-[#0F766E] border border-[#99D8CC]/50 rounded-xl px-3.5 py-2 text-center">
+                            <span class="text-xs text-[#D5F0EA] block">Honor Qualifiers</span>
+                            <span class="font-display font-bold text-base text-white">${glStandings.totalQualifiersCount}</span>
+                        </div>
+                        <div class="bg-[#80530F] border border-[#F0D296]/50 rounded-xl px-3 py-2 text-center">
+                            <span class="text-xs text-[#FFF0D1] block truncate">Level Top 1</span>
+                            <span class="font-display font-extrabold text-sm text-white truncate block" title="${glStandings.overallTop1 ? `${glStandings.overallTop1.student.full_name} (${glStandings.overallTop1.weightedAverage.toFixed(2)})` : 'None'}">
+                                ${glStandings.overallTop1 ? `${glStandings.overallTop1.weightedAverage.toFixed(2)}` : '—'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HIGHEST HONOR HERO SPOTLIGHT PODIUM -->
+            <div class="no-print">
+                ${spotlightHtml}
+            </div>
+
+            <!-- PART 1: 🎖️ OFFICIAL GRADE-LEVEL HONORS ROLL & DISTINCTION ROSTER (ALL SECTIONS AS ONE GRADE LEVEL) -->
+            <div id="printGradeLevelHonorsSection" class="bg-white rounded-2xl border-2 border-[#0F766E] shadow-2xs overflow-hidden shrink-0">
+                ${printInstitutionalHeaderHtml(
+                    `Official Grade-Level Honors &amp; Distinction Roster — ${activeGradeLevel}`,
+                    `Consolidated Honor Roll (All Sections as ONE Grade Level) &bull; Criteria: No Grade Below 85 &bull; General Average &ge; 90.00 (or 89.50+ Rounded to 90)`,
+                    'gl_honors',
+                    quarterTitle,
+                    true
+                )}
+
+                <!-- Screen Card Header -->
+                <div class="px-4 py-3.5 bg-gradient-to-r from-[#0F766E] to-[#115E59] text-white flex flex-wrap items-center justify-between gap-3 no-print">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0 text-xl shadow-xs">
+                            🎖️
+                        </div>
+                        <div>
+                            <h4 class="font-display font-bold text-sm sm:text-base text-white">
+                                Grade-Level Honors &amp; Distinction Roll (All Sections Consolidated)
+                            </h4>
+                            <p class="text-xs text-[#D5F0EA]">
+                                Unified roster for ${escapeHtml(activeGradeLevel)} (${escapeHtml(quarterTitle)}) across all ${glStandings.sections.length} sections &bull; DepEd Order No. 36, s. 2016
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E]">
+                            &#10003; ${glStandings.totalQualifiersCount} Total Honor Qualifiers
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Honor Tier Quick Summary Badges (Screen Only) -->
+                <div class="p-3.5 sm:px-4 bg-[#F5F7FA] border-b border-[#D8DEE8]/70 flex flex-wrap items-center justify-between gap-2.5 no-print">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-xs font-semibold text-[#475569]">DepEd Distinction Tiers:</span>
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]">
+                            🏆 Highest: <strong>${countHighest}</strong>
+                        </span>
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">
+                            🎖️ High: <strong>${countHigh}</strong>
+                        </span>
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">
+                            🎖️ Honors: <strong>${countWithHonors}</strong>
+                        </span>
+                    </div>
+                    <span class="text-xs text-[#475569] font-medium hidden sm:inline">
+                        Passing Threshold: &ge; 85 per subject
+                    </span>
+                </div>
+
+                <!-- Responsive Interactive Filter Toolbar (Screen Only) -->
+                <div class="p-3.5 sm:p-4 bg-white border-b border-[#D8DEE8]/80 flex flex-col md:flex-row md:items-center justify-between gap-3 no-print">
+                    <!-- Honor Tier Filter Pills -->
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <button type="button" onclick="App.setReportHonorTierFilter('all')" data-honor-tier="all" class="gl-honor-tier-btn px-3 py-1.5 rounded-xl text-xs font-bold transition ${state.reportHonorTierFilter === 'all' ? 'bg-[#17243A] text-white shadow-2xs' : 'bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8]'} cursor-pointer">
+                            🌟 All Honors (${glStandings.totalQualifiersCount})
+                        </button>
+                        <button type="button" onclick="App.setReportHonorTierFilter('highest')" data-honor-tier="highest" class="gl-honor-tier-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition ${state.reportHonorTierFilter === 'highest' ? 'bg-[#17243A] text-white shadow-2xs' : 'bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8]'} cursor-pointer">
+                            🏆 Highest (${countHighest})
+                        </button>
+                        <button type="button" onclick="App.setReportHonorTierFilter('high')" data-honor-tier="high" class="gl-honor-tier-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition ${state.reportHonorTierFilter === 'high' ? 'bg-[#17243A] text-white shadow-2xs' : 'bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8]'} cursor-pointer">
+                            🎖️ High (${countHigh})
+                        </button>
+                        <button type="button" onclick="App.setReportHonorTierFilter('honors')" data-honor-tier="honors" class="gl-honor-tier-btn px-3 py-1.5 rounded-xl text-xs font-semibold transition ${state.reportHonorTierFilter === 'honors' ? 'bg-[#17243A] text-white shadow-2xs' : 'bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8]'} cursor-pointer">
+                            🎖️ Honors (${countWithHonors})
+                        </button>
+                    </div>
+
+                    <!-- Section Filter Dropdown & Search Input -->
+                    <div class="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+                        <div class="shrink-0">
+                            <select id="reportHonorSectionFilterSelect" onchange="App.setReportHonorSectionFilter(this.value)" class="px-3 py-1.5 text-xs rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none cursor-pointer">
+                                <option value="all" ${state.reportHonorSectionFilter === 'all' ? 'selected' : ''}>All Sections (${glStandings.sections.length})</option>
+                                ${glStandings.sections.map((s, idx) => `
+                                    <option value="${s.id}" ${String(state.reportHonorSectionFilter) === String(s.id) ? 'selected' : ''}>Sec ${idx + 1}: ${escapeHtml(s.section_name)}</option>
+                                `).join('')}
+                            </select>
+                        </div>
+                        <div class="relative flex-1 sm:w-56">
+                            <input type="text" id="reportHonorSearchInput" value="${escapeHtml(state.reportHonorSearch || '')}" oninput="App.onReportHonorSearch(this.value)" placeholder="Search honor student..." class="w-full px-3 py-1.5 text-xs rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                        </div>
+                        <span id="glHonorFilteredCount" class="text-xs font-semibold text-[#475569] shrink-0">
+                            ${glStandings.totalQualifiersCount} students
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Desktop Table View (hidden on mobile, visible on md+) -->
+                <div class="hidden md:block overflow-x-auto no-print">
+                    <table class="w-full text-left border-collapse text-sm print-table" aria-label="Consolidated Grade Level Honors Roster">
+                        <thead>
+                            <tr class="bg-[#EBF1F8] border-b border-[#C5D5EA] text-xs font-bold uppercase tracking-wider text-[#2C4870]">
+                                <th scope="col" class="py-3 px-3 text-center">Level Rank</th>
+                                <th scope="col" class="py-3 px-3">Student ID</th>
+                                <th scope="col" class="py-3 px-3.5">Student Name</th>
+                                <th scope="col" class="py-3 px-3">Section &amp; Adviser</th>
+                                <th scope="col" class="py-3 px-3 text-center">General Average</th>
+                                <th scope="col" class="py-3 px-3.5 text-center">Honor Distinction</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gradeLevelHonorsTableBody" class="divide-y divide-[#D8DEE8]/70 text-sm bg-white">
+                            <!-- Populated dynamically by renderGradeLevelHonorsRoster -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Mobile Card View (visible on mobile, hidden on md+) -->
+                <div id="gradeLevelHonorsMobileList" class="md:hidden flex flex-col gap-3 p-3.5 sm:p-4 bg-[#F5F7FA] no-print">
+                    <!-- Populated dynamically by renderGradeLevelHonorsRoster -->
+                </div>
+
+                <!-- Institutional Print-Only Table (hidden on screen, visible on print) -->
+                <div class="hidden print-only-block p-4">
+                    <table class="w-full text-left border-collapse print-table">
+                        <thead>
+                            <tr class="bg-slate-100 border-b-2 border-slate-300 text-slate-900 uppercase font-bold text-[8.5pt]">
+                                <th class="py-2.5 px-2.5 text-center">Rank</th>
+                                <th class="py-2.5 px-2.5 text-center">Student ID</th>
+                                <th class="py-2.5 px-3">Student Full Name</th>
+                                <th class="py-2.5 px-2.5">Section</th>
+                                <th class="py-2.5 px-2.5 text-center">General Average</th>
+                                <th class="py-2.5 px-3 text-center">Honor Distinction</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gradeLevelHonorsPrintTableBody" class="divide-y divide-slate-200">
+                            <!-- Populated dynamically by renderGradeLevelHonorsRoster -->
+                        </tbody>
+                    </table>
+                </div>
+
+                ${printSignatoriesHtml('Grade Level Coordinator / Academic Head')}
+            </div>
+
+            <!-- Page Break -->
+            <div class="print-page-break"></div>
+
+            <!-- PART 2: 🏆 SECTION TOP 1s ROSTER (SECTION 1 TO N) -->
+            <div id="printSectionTop1sRoster" class="bg-white rounded-2xl border-2 border-[#80530F] shadow-2xs overflow-hidden shrink-0">
+                ${printInstitutionalHeaderHtml(
+                    `Official Section Top 1 Champions Roster — ${activeGradeLevel}`,
+                    `Highest Academic Performer from Each Section (Section 1 to Section ${glStandings.sections.length}) &bull; Comparative Standing`,
+                    'section_top1s',
+                    quarterTitle,
+                    true
+                )}
+                
+                <!-- Screen Card Header -->
+                <div class="px-4 py-3 bg-gradient-to-r from-[#17243A] via-[#243752] to-[#17243A] text-white flex flex-wrap items-center justify-between gap-2 no-print">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0 text-lg">
+                            🏆
+                        </div>
+                        <div>
+                            <h4 class="font-display font-bold text-sm sm:text-base text-white">
+                                Section Top 1s Champions (Section 1 to Section ${glStandings.sections.length})
+                            </h4>
+                            <p class="text-xs text-slate-300">
+                                Comparing who is Top 1 in each section of ${escapeHtml(activeGradeLevel)}, their average, honor distinction, and overall grade-level standing.
+                            </p>
+                        </div>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-xs font-bold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296]">
+                        ${glStandings.sections.length} Sections Compared
+                    </span>
+                </div>
+
+                <!-- Screen Cards Grid -->
+                <div class="p-4 sm:p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4.5 bg-[#F5F7FA] no-print">
+                    ${top1CardsHtml}
+                </div>
+
+                <!-- Print Table for Section Top 1s -->
+                <div class="hidden print-only-block p-4">
+                    <table class="w-full text-left border-collapse print-table">
+                        <thead>
+                            <tr class="bg-slate-100 border-b-2 border-slate-300 text-slate-900 uppercase font-bold text-[8.5pt]">
+                                <th class="py-2.5 px-3 text-center">Section</th>
+                                <th class="py-2.5 px-3">Class Adviser</th>
+                                <th class="py-2.5 px-2.5 text-center">Student ID</th>
+                                <th class="py-2.5 px-4">Top 1 Student Name</th>
+                                <th class="py-2.5 px-2.5 text-center">General Average</th>
+                                <th class="py-2.5 px-3 text-center">Honor Distinction</th>
+                                <th class="py-2.5 px-2.5 text-center">Level Rank</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-200">
+                            ${printTop1sTableRowsHtml}
+                        </tbody>
+                    </table>
+                </div>
+
+                ${printSignatoriesHtml('Grade Level Coordinator / Academic Head')}
+            </div>
+
+            <!-- Page Break -->
+            <div class="print-page-break"></div>
+
+            <!-- PART 3: 📋 CONSOLIDATED MASTER GRADE-LEVEL RANKING (ALL STUDENTS) -->
+            <div id="printGradeLevelFullRankingSection" class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs overflow-hidden flex flex-col shrink-0">
+                ${printInstitutionalHeaderHtml(
+                    `Consolidated Master Grade-Level Ranking — ${activeGradeLevel}`,
+                    `Complete Cross-Section Ranking Sheet (${glStandings.totalStudentsCount} Students across ${glStandings.sections.length} Sections) &bull; Official DepEd Record`,
+                    'gl_ranking',
+                    quarterTitle,
+                    true
+                )}
+
+                <div class="px-4 py-3 bg-[#17243A] text-white flex flex-wrap items-center justify-between gap-2 no-print">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                        </div>
+                        <div>
+                            <h4 class="font-display font-bold text-sm sm:text-base">
+                                Consolidated Master Grade-Level Ranking (All ${glStandings.totalStudentsCount} Students)
+                            </h4>
+                            <p class="text-xs text-slate-300">
+                                Complete cross-section ranking sheet across all ${glStandings.sections.length} sections in ${escapeHtml(activeGradeLevel)} (${escapeHtml(quarterTitle)})
+                            </p>
+                        </div>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870]">
+                        ${glStandings.totalStudentsCount} Total Students
+                    </span>
+                </div>
+
+                <!-- Master Ranking Toolbar -->
+                <div class="p-3.5 sm:p-4 bg-white border-b border-[#D8DEE8] flex flex-col md:flex-row md:items-center justify-between gap-3 no-print">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <button type="button" onclick="App.setReportGradeLevelFilter('all')" data-gl-filter="all" class="gl-filter-btn px-3 py-1.5 rounded-lg text-xs font-bold transition bg-[#17243A] text-white shadow-2xs cursor-pointer">
+                            All (${glStandings.allStudentsList.length})
+                        </button>
+                        <button type="button" onclick="App.setReportGradeLevelFilter('qualifiers')" data-gl-filter="qualifiers" class="gl-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8] cursor-pointer">
+                            Honors Only (${glStandings.overallQualifiers.length})
+                        </button>
+                        <button type="button" onclick="App.setReportGradeLevelFilter('female')" data-gl-filter="female" class="gl-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8] cursor-pointer">
+                            Female (${glStandings.allStudentsList.filter(r => normalizeGenderClient(r.student.gender) === 'Female').length})
+                        </button>
+                        <button type="button" onclick="App.setReportGradeLevelFilter('male')" data-gl-filter="male" class="gl-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-[#F5F7FA] text-[#475569] hover:bg-[#EBF1F8] border border-[#D8DEE8] cursor-pointer">
+                            Male (${glStandings.allStudentsList.filter(r => normalizeGenderClient(r.student.gender) === 'Male').length})
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2.5">
+                        <div class="relative flex-1 sm:w-64">
+                            <input type="text" id="glRankingSearchInput" oninput="App.onReportGradeLevelSearch(this.value)" placeholder="Search student or section..." class="w-full px-3 py-1.5 text-xs rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                        </div>
+                        <span id="glRankingFilteredCount" class="text-xs font-semibold text-[#475569] shrink-0">
+                            ${glStandings.allStudentsList.length} students
+                        </span>
+                    </div>
+                </div>
+
+                <div class="flex-1 overflow-auto custom-scrollbar">
+                    <table class="w-full text-left border-collapse print-table" aria-label="Grade Level Master Ranking Table">
+                        <thead class="sticky top-0 z-10">
+                            <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                <th scope="col" class="py-2.5 px-3 text-center">Level Rank</th>
+                                <th scope="col" class="py-2.5 px-3.5 min-w-[170px]">Student Name</th>
+                                <th scope="col" class="py-2.5 px-3">Section &amp; Adviser</th>
+                                <th scope="col" class="py-2.5 px-3 text-center">General Average</th>
+                                <th scope="col" class="py-2.5 px-3.5">Honors &amp; Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gradeLevelRankingTableBody" class="divide-y divide-[#D8DEE8]/60 text-sm">
+                            <!-- Populated by renderGradeLevelRankingRows -->
+                        </tbody>
+                    </table>
+                </div>
+
+                ${printSignatoriesHtml('Grade Level Coordinator / Academic Head')}
+            </div>
+        `;
+
+        renderGradeLevelHonorsRoster();
+        renderGradeLevelRankingRows();
+    }
+
+
+    function renderSingleSectionReport(container, activeSection, quarterTitle) {
         const standings = computeSectionStandings(activeSection.id, state.reportQuarter);
         if (!standings) return;
-
-        const quarterLabelMap = {
-            Q1: '1st Quarter (Q1)',
-            Q2: '2nd Quarter (Q2)',
-            Q3: '3rd Quarter (Q3)',
-            Q4: '4th Quarter (Q4)',
-            FINAL: 'Final / Cumulative Average (Q1–Q4)',
-        };
-        const quarterTitle = quarterLabelMap[state.reportQuarter] || state.reportQuarter;
 
         const gradedStudents = standings.rankedRows.filter(r => r.weightedAverage !== null);
         const sectionMean = gradedStudents.length > 0
@@ -4130,6 +5304,82 @@ const App = (() => {
         `;
     }
 
+    function renderReportsView() {
+        const secSelect = document.getElementById('reportSectionSelect');
+        const glSelect = document.getElementById('reportGradeLevelSelect');
+        const qtrSelect = document.getElementById('reportQuarterSelect');
+        const container = document.getElementById('quarterlyReportContainer');
+        if (!secSelect || !qtrSelect || !container) return;
+
+        if (state.sections.length === 0) {
+            secSelect.innerHTML = `<option value="">No sections available</option>`;
+            if (glSelect) glSelect.innerHTML = `<option value="">No grade levels</option>`;
+            container.innerHTML = `
+                <div class="bg-white rounded-2xl border border-[#D8DEE8] p-12 text-center">
+                    <h3 class="font-display font-bold text-[#17243A] text-base">No Sections Available for Quarterly Report</h3>
+                    <p class="text-sm text-[#475569] mt-1">Load the 28-unit sample curriculum and grades to see automated section rankings and the Honor Qualifier pullout.</p>
+                    <button type="button" onclick="App.seedSampleData()" class="mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] cursor-pointer">
+                        Load 28-Unit Demo &amp; Sample Grades
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        const availableGradeLevels = Array.from(new Set(state.sections.map(s => s.year_level).filter(Boolean))).sort();
+        if (!state.reportGradeLevel || !availableGradeLevels.includes(state.reportGradeLevel)) {
+            state.reportGradeLevel = availableGradeLevels[0] || 'Grade 11';
+        }
+
+        if (glSelect) {
+            glSelect.innerHTML = availableGradeLevels.map(gl => {
+                const count = state.sections.filter(s => s.year_level === gl).length;
+                return `<option value="${escapeHtml(gl)}" ${state.reportGradeLevel === gl ? 'selected' : ''}>
+                    ${escapeHtml(gl)} (${count} Section${count === 1 ? '' : 's'})
+                </option>`;
+            }).join('');
+        }
+
+        secSelect.innerHTML = `
+            <optgroup label="🌟 Grade-Level Wide Rankings (All Sections)">
+                ${availableGradeLevels.map(gl => {
+                    const count = state.sections.filter(s => s.year_level === gl).length;
+                    return `<option value="ALL:${escapeHtml(gl)}" ${state.reportScope === 'grade_level' && state.reportGradeLevel === gl ? 'selected' : ''}>
+                        ★ All Sections — ${escapeHtml(gl)} (${count} Sections Consolidated)
+                    </option>`;
+                }).join('')}
+            </optgroup>
+            <optgroup label="🏫 Individual Section Reports">
+                ${state.sections.map(sec => `
+                    <option value="${sec.id}" ${state.reportScope === 'section' && Number(state.reportSectionId) === sec.id ? 'selected' : ''}>
+                        ${escapeHtml(sec.section_name)} — ${escapeHtml(sec.year_level)} (${formatUnits(sec.total_units)} units)
+                    </option>
+                `).join('')}
+            </optgroup>
+        `;
+
+        qtrSelect.value = state.reportQuarter;
+
+        const quarterLabelMap = {
+            Q1: '1st Quarter (Q1)',
+            Q2: '2nd Quarter (Q2)',
+            Q3: '3rd Quarter (Q3)',
+            Q4: '4th Quarter (Q4)',
+            FINAL: 'Final / Cumulative Average (Q1–Q4)',
+        };
+        const quarterTitle = quarterLabelMap[state.reportQuarter] || state.reportQuarter;
+
+        updateReportScopeUiState();
+
+        if (state.reportScope === 'grade_level') {
+            renderGradeLevelReport(container, state.reportGradeLevel, quarterTitle);
+        } else {
+            const activeSection = state.sections.find(s => s.id === Number(state.reportSectionId)) || state.sections[0];
+            state.reportSectionId = activeSection.id;
+            renderSingleSectionReport(container, activeSection, quarterTitle);
+        }
+    }
+
     function filterStudentsBySection(sectionId) {
         state.studentSectionId = sectionId ? String(sectionId) : '';
         state.studentCurrentPage = 1;
@@ -4278,7 +5528,7 @@ const App = (() => {
         ).map(cb => Number(cb.value));
 
         const submitBtn = document.getElementById('sectionSubmitBtn');
-        submitBtn.disabled = true;
+        setButtonLoading(submitBtn, true, id ? 'Updating Section...' : 'Creating Section...');
 
         try {
             const res = await apiRequest('save_section', {
@@ -4287,7 +5537,7 @@ const App = (() => {
                 year_level,
                 adviser,
                 subject_ids: checkedSubjectIds,
-            });
+            }, 'Saving Section Details...');
             applySystemState(res);
             closeModal('sectionModal');
             showToast(res.message, 'success');
@@ -4301,7 +5551,7 @@ const App = (() => {
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            submitBtn.disabled = false;
+            setButtonLoading(submitBtn, false);
         }
     }
 
@@ -4317,7 +5567,7 @@ const App = (() => {
 
         const btn = document.getElementById('confirmModalActionBtn');
         btn.onclick = async () => {
-            btn.disabled = true;
+            setButtonLoading(btn, true, 'Deleting Section...');
             try {
                 const res = await apiRequest('delete_section', { id: sec.id });
                 applySystemState(res);
@@ -4326,7 +5576,7 @@ const App = (() => {
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
-                btn.disabled = false;
+                setButtonLoading(btn, false);
             }
         };
         openModal('confirmModal');
@@ -4404,7 +5654,7 @@ const App = (() => {
             : undefined;
 
         const submitBtn = document.getElementById('subjectSubmitBtn');
-        submitBtn.disabled = true;
+        setButtonLoading(submitBtn, true, id ? 'Updating Subject...' : 'Creating Subject...');
 
         try {
             const payload = {
@@ -4418,7 +5668,7 @@ const App = (() => {
                 payload.section_ids = checkedSectionIds;
             }
 
-            const res = await apiRequest('save_subject', payload);
+            const res = await apiRequest('save_subject', payload, 'Saving Subject Catalog Record...');
             applySystemState(res);
             closeModal('subjectModal');
             showToast(res.message, 'success');
@@ -4441,7 +5691,7 @@ const App = (() => {
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            submitBtn.disabled = false;
+            setButtonLoading(submitBtn, false);
         }
     }
 
@@ -4457,7 +5707,7 @@ const App = (() => {
 
         const btn = document.getElementById('confirmModalActionBtn');
         btn.onclick = async () => {
-            btn.disabled = true;
+            setButtonLoading(btn, true, 'Deleting Subject...');
             try {
                 const res = await apiRequest('delete_subject', { id: sub.id });
                 applySystemState(res);
@@ -4466,7 +5716,7 @@ const App = (() => {
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
-                btn.disabled = false;
+                setButtonLoading(btn, false);
             }
         };
         openModal('confirmModal');
@@ -4655,20 +5905,20 @@ const App = (() => {
         });
 
         const btn = document.getElementById('assignSubjectsSubmitBtn');
-        btn.disabled = true;
+        setButtonLoading(btn, true, 'Saving Section Loads...');
 
         try {
             const res = await apiRequest('sync_section_subjects', {
                 section_id: sectionId,
                 assignments,
-            });
+            }, 'Updating Section Curriculum...');
             applySystemState(res);
             closeModal('assignSubjectsModal');
             showToast(res.message, 'success');
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            btn.disabled = false;
+            setButtonLoading(btn, false);
         }
     }
 
@@ -5039,7 +6289,7 @@ const App = (() => {
         }
 
         const btn = document.getElementById('astSubmitBtn');
-        if (btn) btn.disabled = true;
+        setButtonLoading(btn, true, 'Assigning Subject Loads...');
 
         try {
             const res = await apiRequest('assign_subject_teacher', {
@@ -5047,14 +6297,14 @@ const App = (() => {
                 section_ids: sectionIds,
                 subject_ids: subjectIds,
                 schedule,
-            });
+            }, 'Updating Teacher Load Assignments...');
             applySystemState(res);
             closeModal('assignSubjectTeacherModal');
             showToast(res.message, 'success');
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            if (btn) btn.disabled = false;
+            setButtonLoading(btn, false);
         }
     }
 
@@ -5231,13 +6481,13 @@ const App = (() => {
 
         const subjectIds = state.reorderDraftList.map(s => Number(s.subject_id));
         const btn = document.getElementById('reorderSaveBtn');
-        if (btn) btn.disabled = true;
+        setButtonLoading(btn, true, 'Saving Order...');
 
         try {
             const res = await apiRequest('reorder_section_subjects', {
                 section_id: secId,
                 subject_ids: subjectIds,
-            });
+            }, 'Saving Custom Subject Order...');
             applySystemState(res);
             closeModal('reorderSubjectsModal');
             const firstSub = state.reorderDraftList[0]?.subject_code || 'Selected subject';
@@ -5245,7 +6495,7 @@ const App = (() => {
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            if (btn) btn.disabled = false;
+            setButtonLoading(btn, false);
         }
     }
 
@@ -5655,15 +6905,16 @@ const App = (() => {
         }
 
         const btn = document.getElementById('studentSubmitBtn');
-        btn.disabled = true;
+        const isBulk = !id && studentModalMode === 'bulk';
+        setButtonLoading(btn, true, id ? 'Saving Student...' : (isBulk ? 'Enrolling Students...' : 'Enrolling Student...'));
 
         try {
-            if (!id && studentModalMode === 'bulk') {
+            if (isBulk) {
                 const students_text = (document.getElementById('bulkStudentsTextarea')?.value || '').trim();
                 const gender = normalizeGenderClient(document.getElementById('bulkStudentGenderInput')?.value || 'Female');
                 if (!students_text) {
                     showToast('Please enter at least one student name (1 student per line).', 'error');
-                    btn.disabled = false;
+                    setButtonLoading(btn, false);
                     return;
                 }
                 const res = await apiRequest('bulk_save_students', {
@@ -5672,7 +6923,7 @@ const App = (() => {
                     year_level,
                     gender,
                     status,
-                });
+                }, 'Enrolling Student Roster...');
                 applySystemState(res);
                 closeModal('studentModal');
                 showToast(res.message, 'success');
@@ -5693,7 +6944,7 @@ const App = (() => {
                     section_id,
                     year_level,
                     status,
-                });
+                }, id ? 'Updating Student Record...' : 'Enrolling Student...');
                 applySystemState(res);
                 closeModal('studentModal');
                 showToast(res.message, 'success');
@@ -5701,7 +6952,7 @@ const App = (() => {
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            btn.disabled = false;
+            setButtonLoading(btn, false);
         }
     }
 
@@ -5715,7 +6966,7 @@ const App = (() => {
 
         const btn = document.getElementById('confirmModalActionBtn');
         btn.onclick = async () => {
-            btn.disabled = true;
+            setButtonLoading(btn, true, 'Removing Student...');
             try {
                 const res = await apiRequest('delete_student', { id: st.id });
                 applySystemState(res);
@@ -5724,19 +6975,23 @@ const App = (() => {
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
-                btn.disabled = false;
+                setButtonLoading(btn, false);
             }
         };
         openModal('confirmModal');
     }
 
     async function seedSampleData() {
+        const seedBtns = Array.from(document.querySelectorAll('button[onclick*="seedSampleData"]'));
+        seedBtns.forEach(btn => setButtonLoading(btn, true, 'Loading 28-Unit Demo...'));
         try {
-            const res = await apiRequest('seed_demo', {});
+            const res = await apiRequest('seed_demo', {}, 'Seeding 28-Unit Demo Data & Students...');
             applySystemState(res);
             showToast(res.message, 'success');
         } catch (err) {
             showToast(err.message, 'error');
+        } finally {
+            seedBtns.forEach(btn => setButtonLoading(btn, false));
         }
     }
 
@@ -6016,7 +7271,7 @@ const App = (() => {
         }
 
         const submitBtn = document.getElementById('teacherSubmitBtn');
-        if (submitBtn) submitBtn.disabled = true;
+        setButtonLoading(submitBtn, true, id ? 'Updating Account...' : 'Creating Account...');
 
         try {
             const res = await apiRequest('save_teacher', {
@@ -6040,7 +7295,7 @@ const App = (() => {
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            if (submitBtn) submitBtn.disabled = false;
+            setButtonLoading(submitBtn, false);
         }
     }
 
@@ -6069,7 +7324,7 @@ const App = (() => {
         const btn = document.getElementById('confirmModalActionBtn');
         btn.textContent = 'Yes, Delete Account';
         btn.onclick = async () => {
-            btn.disabled = true;
+            setButtonLoading(btn, true, 'Deleting Account...');
             try {
                 const res = await apiRequest('delete_teacher', { id: u.id });
                 applySystemState(res);
@@ -6078,7 +7333,7 @@ const App = (() => {
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
-                btn.disabled = false;
+                setButtonLoading(btn, false);
             }
         };
         openModal('confirmModal');
@@ -6238,7 +7493,7 @@ const App = (() => {
         }
 
         const submitBtn = document.getElementById('requestUnlockSubmitBtn');
-        if (submitBtn) submitBtn.disabled = true;
+        setButtonLoading(submitBtn, true, 'Submitting Request...');
 
         try {
             const res = await apiRequest('request_unlock_grades', {
@@ -6253,7 +7508,7 @@ const App = (() => {
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            if (submitBtn) submitBtn.disabled = false;
+            setButtonLoading(submitBtn, false);
         }
     }
 
@@ -6375,6 +7630,17 @@ const App = (() => {
             const urlSecId = urlParams.get('section_id');
             const urlQtr = urlParams.get('quarter');
             const urlSubId = urlParams.get('subject_id');
+            const urlScope = urlParams.get('scope');
+            const urlGradeLevel = urlParams.get('grade_level');
+
+            if (urlScope === 'grade_level' || urlGradeLevel) {
+                state.reportScope = 'grade_level';
+                if (urlGradeLevel) {
+                    state.reportGradeLevel = urlGradeLevel;
+                }
+            } else if (urlScope === 'section') {
+                state.reportScope = 'section';
+            }
 
             if (urlSecId && state.sections.some(s => s.id === Number(urlSecId))) {
                 const secId = Number(urlSecId);
@@ -6496,11 +7762,32 @@ const App = (() => {
 
         // Reports View Selectors
         document.getElementById('reportSectionSelect')?.addEventListener('change', e => {
-            state.reportSectionId = Number(e.target.value);
+            const val = e.target.value;
+            if (val.startsWith('ALL:')) {
+                state.reportScope = 'grade_level';
+                state.reportGradeLevel = val.substring(4);
+            } else {
+                state.reportScope = 'section';
+                state.reportSectionId = Number(val);
+            }
             if (state.currentView === 'reports') {
                 updateBrowserUrl({
                     page: 'reports',
-                    section_id: state.reportSectionId,
+                    scope: state.reportScope,
+                    section_id: state.reportScope === 'section' ? state.reportSectionId : null,
+                    grade_level: state.reportScope === 'grade_level' ? state.reportGradeLevel : null,
+                    quarter: state.reportQuarter
+                }, true);
+            }
+            renderReportsView();
+        });
+        document.getElementById('reportGradeLevelSelect')?.addEventListener('change', e => {
+            state.reportGradeLevel = e.target.value;
+            if (state.currentView === 'reports') {
+                updateBrowserUrl({
+                    page: 'reports',
+                    scope: 'grade_level',
+                    grade_level: state.reportGradeLevel,
                     quarter: state.reportQuarter
                 }, true);
             }
@@ -6511,7 +7798,9 @@ const App = (() => {
             if (state.currentView === 'reports') {
                 updateBrowserUrl({
                     page: 'reports',
-                    section_id: state.reportSectionId,
+                    scope: state.reportScope,
+                    section_id: state.reportScope === 'section' ? state.reportSectionId : null,
+                    grade_level: state.reportScope === 'grade_level' ? state.reportGradeLevel : null,
                     quarter: state.reportQuarter
                 }, true);
             }
@@ -6629,6 +7918,12 @@ const App = (() => {
         saveCurrentGradesSheet,
         openSectionReport,
         openGradingForReportSection,
+        setReportScope,
+        setReportHonorTierFilter,
+        setReportHonorSectionFilter,
+        onReportHonorSearch,
+        setReportGradeLevelFilter,
+        onReportGradeLevelSearch,
         setDashboardSection,
         setDashboardGenderFilter,
         setDashboardPageSize,
