@@ -6,7 +6,7 @@ $isAdminUser = ($currentUser['role'] ?? '') === 'admin';
 $dbStatus = getDatabaseStatus();
 
 $requestedPage = $_GET['page'] ?? $_GET['view'] ?? 'dashboard';
-$allowedPages = ['dashboard', 'sections', 'subjects', 'students', 'grading', 'reports', 'users'];
+$allowedPages = ['dashboard', 'sections', 'subjects', 'students', 'grading', 'reports', 'student_report', 'users'];
 if (!in_array($requestedPage, $allowedPages, true)) {
     $requestedPage = 'dashboard';
 }
@@ -836,6 +836,13 @@ require_once __DIR__ . '/includes/header.php';
 
                     <div id="quarterlyReportContainer" class="space-y-4 flex-1 flex flex-col min-h-0">
                         <!-- Populated by JS -->
+                    </div>
+                </section>
+
+                <!-- ==================== VIEW 8: INDIVIDUAL LEARNER GRADE CARD & REPORT (FORM 138) ==================== -->
+                <section id="view-student_report" class="view-panel <?= $requestedPage === 'student_report' ? '' : 'hidden' ?> space-y-4">
+                    <div id="studentReportViewContainer" class="space-y-4 flex-1 flex flex-col min-h-0">
+                        <!-- Populated by App.renderStudentReportView() in JS -->
                     </div>
                 </section>
 

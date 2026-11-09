@@ -20,7 +20,7 @@
     <!-- Sidebar Navigation (Midnight Navy #17243A — Academic Prestige Primary Brand) -->
     <?php
     $activeNavPage = $requestedPage ?? ($_GET['page'] ?? $_GET['view'] ?? 'dashboard');
-    $validNavPages = ['dashboard', 'sections', 'subjects', 'students', 'grading', 'reports', 'users'];
+    $validNavPages = ['dashboard', 'sections', 'subjects', 'students', 'grading', 'reports', 'student_report', 'users'];
     if (!in_array($activeNavPage, $validNavPages, true)) {
         $activeNavPage = 'dashboard';
     }
@@ -117,6 +117,15 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                             </svg>
                             <span>Rankings &amp; Honors</span>
+                        </span>
+                    </a>
+
+                    <a href="?page=student_report" data-nav="student_report" class="<?= getNavClass('student_report', $activeNavPage) ?>"<?= getNavAria('student_report', $activeNavPage) ?>>
+                        <span class="flex items-center gap-3">
+                            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                            </svg>
+                            <span>Student Grade Card</span>
                         </span>
                     </a>
                 </div>

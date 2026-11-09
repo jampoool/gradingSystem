@@ -348,12 +348,59 @@ input[data-grade-input="true"]:focus {
         display: none !important;
     }
 
+    body[data-print-target="student_card"] .view-panel:not(#view-student_report),
+    body[data-print-target="student_card"] #studentReportControls {
+        display: none !important;
+    }
+
+    body[data-print-target="student_card"] #view-student_report {
+        display: block !important;
+    }
+
+    body[data-print-target="student_modal"] #sidebar,
+    body[data-print-target="student_modal"] header,
+    body[data-print-target="student_modal"] main,
+    body[data-print-target="student_modal"] .view-panel {
+        display: none !important;
+    }
+
+    body[data-print-target="student_modal"] #studentGradeCardModal {
+        display: block !important;
+        position: static !important;
+        overflow: visible !important;
+        z-index: 99999 !important;
+        background: white !important;
+    }
+
+    body[data-print-target="student_modal"] #studentGradeCardModal > div {
+        display: block !important;
+        min-height: auto !important;
+        padding: 0 !important;
+    }
+
+    body[data-print-target="student_modal"] #studentGradeCardModal .backdrop-blur-xs,
+    body[data-print-target="student_modal"] #studentGradeCardModal .fixed.inset-0,
+    body[data-print-target="student_modal"] #studentCardModalToolbar,
+    body[data-print-target="student_modal"] .no-print {
+        display: none !important;
+    }
+
+    body[data-print-target="student_modal"] #studentGradeCardModal .max-w-5xl {
+        max-width: 100% !important;
+        max-height: none !important;
+        box-shadow: none !important;
+        border: none !important;
+        overflow: visible !important;
+    }
+
     /* Reset rounded cards, borders, and shadows for clean PDF edges */
     #printHonorsSection,
     #printMasterGradesSection,
     #printSectionTop1sRoster,
     #printGradeLevelHonorsSection,
-    #printGradeLevelFullRankingSection {
+    #printGradeLevelFullRankingSection,
+    #printStudentForm138Card,
+    #printStudentForm138ModalCard {
         border-radius: 0 !important;
         border: 1px solid #cbd5e1 !important;
         box-shadow: none !important;
@@ -465,3 +512,52 @@ body[data-role="teacher"] [data-admin-only="true"] {
         background-color: transparent;
     }
 }
+
+/* ==================== BULLETPROOF STICKY DATATABLE HEADERS ==================== */
+.sticky-table-container {
+    max-height: 650px;
+    overflow: auto;
+    position: relative;
+    border-radius: 0.75rem;
+}
+
+@media (max-height: 850px) {
+    .sticky-table-container {
+        max-height: 520px;
+    }
+}
+
+.sticky-table-container thead th {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 20 !important;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* Horizontal frozen columns for wide subject tables */
+.sticky-col-rank {
+    position: sticky !important;
+    left: 0 !important;
+}
+
+thead .sticky-col-rank {
+    z-index: 30 !important;
+}
+
+tbody .sticky-col-rank {
+    z-index: 10 !important;
+}
+
+.sticky-col-name {
+    position: sticky !important;
+    left: 48px !important;
+}
+
+thead .sticky-col-name {
+    z-index: 30 !important;
+}
+
+tbody .sticky-col-name {
+    z-index: 10 !important;
+}
+

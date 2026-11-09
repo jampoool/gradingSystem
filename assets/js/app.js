@@ -77,6 +77,14 @@ const App = (() => {
         reportHonorSearch: '',
         reportGradeLevelFilter: 'all', // 'all' | 'qualifiers' | 'female' | 'male'
         reportGradeLevelSearch: '',
+        studentReportStudentId: null,
+        studentReportQuarter: 'FINAL', // 'FINAL' | 'Q1' | 'Q2' | 'Q3' | 'Q4'
+        studentReportSectionFilter: '',
+        studentReportSearch: '',
+        studentReportYearFilter: '',
+        studentReportGenderFilter: '',
+        studentReportCurrentPage: 1,
+        studentReportPageSize: 10,
 
         currentUser: null,
         teachers: [],
@@ -108,6 +116,10 @@ const App = (() => {
         reports: {
             title: 'Quarterly Report, Weighted Ranking & Honor Pullout',
             breadcrumb: 'Automated Quarterly Ranking',
+        },
+        student_report: {
+            title: 'Student Grade Cards & Progress Directory',
+            breadcrumb: 'Student Grade Cards',
         },
         users: {
             title: 'Teacher Accounts & Permissions',
@@ -810,6 +822,10 @@ const App = (() => {
             updateBrowserUrl({ page: viewName });
         }
 
+        if (viewName === 'student_report') {
+            renderStudentReportView();
+        }
+
         closeMobileSidebar();
     }
 
@@ -864,6 +880,9 @@ const App = (() => {
         renderStudentsView();
         renderGradingView();
         renderReportsView();
+        if (state.currentView === 'student_report') {
+            renderStudentReportView();
+        }
 
         const usersBadge = document.getElementById('navBadgeUsers');
         if (usersBadge) {
@@ -2198,8 +2217,11 @@ const App = (() => {
                     </td>
                     <td class="py-3 px-3.5 align-middle text-right whitespace-nowrap">
                         <div class="inline-flex items-center gap-1.5">
+                            <button type="button" onclick="App.openStudentGradeCard(${st.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-[#0F766E] bg-[#D5F0EA] hover:bg-[#c2e8df] border border-[#99D8CC] transition cursor-pointer flex items-center gap-1" title="View Individual Grades &amp; Report Card">
+                                <span>📋 Grades</span>
+                            </button>
                             <button type="button" onclick="App.openSectionGrading(${st.section_id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer" title="Input Grades">
-                                Grades
+                                Sheet
                             </button>
                             ${canAddStudent ? `
                                 <button type="button" onclick="App.openStudentModal(${st.id})" class="p-1.5 rounded-lg text-[#475569] hover:text-[#17243A] hover:bg-[#EBF1F8] transition cursor-pointer" title="Edit Student">
@@ -2793,7 +2815,10 @@ const App = (() => {
                     <td class="py-2.5 px-3.5 font-mono text-xs font-semibold text-[#17243A]">${escapeHtml(st.student_no)}</td>
                     <td class="py-2.5 px-3.5">
                         <div class="flex items-center gap-2">
-                            <span class="font-semibold text-[#17243A]">${escapeHtml(st.full_name)}</span>
+                            <button type="button" onclick="App.openStudentGradeCardModal(${st.id})" class="text-left font-semibold text-[#17243A] hover:text-[#5276A7] hover:underline cursor-pointer flex items-center gap-1.5" title="Click to view full grades card in modal">
+                                <span>${escapeHtml(st.full_name)}</span>
+                                <span class="text-[11px] font-normal text-[#2C4870] bg-[#EBF1F8] px-1.5 py-0.5 rounded border border-[#C5D5EA]">📋 Card</span>
+                            </button>
                             ${genderBadgeHtml(st.gender, true)}
                         </div>
                     </td>
@@ -2993,11 +3018,20 @@ const App = (() => {
                 <tr class="hover:bg-[#F5F7FA] transition text-sm" id="masterRow_${st.id}" data-excel-row="${row.excel_row}">
                     <td class="py-2.5 px-3 font-mono text-xs text-[#475569] whitespace-nowrap">#${row.excel_row}</td>
                     <td class="py-2.5 px-4 whitespace-nowrap sticky left-0 bg-white/95 backdrop-blur-xs z-10 border-r border-[#D8DEE8]">
-                        <div class="flex items-center gap-2">
-                            <span class="font-semibold text-[#17243A] text-sm">${escapeHtml(st.full_name)}</span>
-                            ${genderBadgeHtml(st.gender, true)}
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-1.5">
+                                    <button type="button" onclick="App.openStudentGradeCardModal(${st.id})" class="text-left font-bold text-[#17243A] hover:text-[#5276A7] hover:underline cursor-pointer truncate" title="View Student Grade Card Modal">
+                                        <span>${escapeHtml(st.full_name)}</span>
+                                    </button>
+                                    ${genderBadgeHtml(st.gender, true)}
+                                </div>
+                                <div class="font-mono text-xs text-[#475569]">${escapeHtml(st.student_no)}</div>
+                            </div>
+                            <button type="button" onclick="App.openStudentGradeCardModal(${st.id})" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold bg-[#EBF1F8] text-[#2C4870] hover:bg-[#17243A] hover:text-white border border-[#C5D5EA] transition cursor-pointer shrink-0" title="Open Grade Card Modal">
+                                <span>📋</span>
+                            </button>
                         </div>
-                        <div class="font-mono text-xs text-[#475569]">${escapeHtml(st.student_no)}</div>
                     </td>
                     ${inputsHtml}
                     <td class="py-2.5 px-3 text-center font-mono text-xs text-[#475569] border-l border-[#D8DEE8] whitespace-nowrap" id="masterSum_${st.id}">
@@ -4188,7 +4222,10 @@ const App = (() => {
                         </td>
                         <td class="py-3 px-3.5 whitespace-nowrap">
                             <div class="flex items-center gap-2">
-                                <span class="font-display font-bold text-[#17243A] text-sm">${escapeHtml(q.student.full_name)}</span>
+                                <button type="button" onclick="App.openStudentGradeCard(${q.student.id})" class="text-left font-display font-bold text-[#17243A] hover:text-[#5276A7] hover:underline cursor-pointer flex items-center gap-1.5" title="View Individual Grade Card for ${escapeHtml(q.student.full_name)}">
+                                    <span>${escapeHtml(q.student.full_name)}</span>
+                                    <svg class="w-3.5 h-3.5 text-[#5276A7] opacity-60 hover:opacity-100 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                </button>
                                 ${genderBadgeHtml(q.student.gender, true)}
                             </div>
                         </td>
@@ -4242,9 +4279,9 @@ const App = (() => {
                         <div class="pt-3 flex items-start justify-between gap-3">
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center gap-1.5 flex-wrap">
-                                    <h5 class="font-display font-bold text-base text-[#17243A]">
+                                    <button type="button" onclick="App.openStudentGradeCard(${q.student.id})" class="text-left font-display font-bold text-base text-[#17243A] hover:text-[#5276A7] hover:underline cursor-pointer">
                                         ${escapeHtml(q.student.full_name)}
-                                    </h5>
+                                    </button>
                                     ${genderBadgeHtml(q.student.gender, true)}
                                 </div>
                                 <p class="font-mono text-xs text-[#475569] mt-0.5">${escapeHtml(q.student.student_no)}</p>
@@ -4378,7 +4415,10 @@ const App = (() => {
                     <td class="py-2.5 px-3 whitespace-nowrap text-center">${rankPill}</td>
                     <td class="py-2.5 px-3.5 whitespace-nowrap">
                         <div class="flex items-center gap-1.5">
-                            <span class="font-display font-bold text-[#17243A] text-sm">${escapeHtml(r.student.full_name)}</span>
+                            <button type="button" onclick="App.openStudentGradeCard(${r.student.id})" class="text-left font-display font-bold text-[#17243A] hover:text-[#5276A7] hover:underline cursor-pointer flex items-center gap-1" title="View Individual Grade Card">
+                                <span>${escapeHtml(r.student.full_name)}</span>
+                                <svg class="w-3.5 h-3.5 text-[#5276A7] opacity-60 hover:opacity-100 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                            </button>
                             ${genderBadgeHtml(r.student.gender, true)}
                         </div>
                         <div class="font-mono text-xs text-[#475569]">${escapeHtml(r.student.student_no)}</div>
@@ -4471,7 +4511,9 @@ const App = (() => {
                                     </div>
                                     <div class="min-w-0 flex-1">
                                         <h3 class="font-display font-extrabold text-xl sm:text-2xl text-white tracking-tight truncate">
-                                            ${escapeHtml(top.student.full_name)}
+                                            <button type="button" onclick="App.openStudentGradeCard(${top.student.id})" class="text-left text-white hover:text-[#FFF0D1] hover:underline cursor-pointer" title="View Full Report Card for ${escapeHtml(top.student.full_name)}">
+                                                ${escapeHtml(top.student.full_name)}
+                                            </button>
                                         </h3>
                                         <div class="flex items-center gap-2 text-xs sm:text-sm text-slate-300 mt-1 flex-wrap">
                                             <span class="font-mono bg-white/10 px-2 py-0.5 rounded text-white">${escapeHtml(top.student.student_no)}</span>
@@ -4574,7 +4616,9 @@ const App = (() => {
                                     <div class="min-w-0 flex-1">
                                         <div class="flex items-center gap-1.5 flex-wrap">
                                             <h5 class="font-display font-bold text-sm sm:text-base text-[#17243A] truncate">
-                                                ${escapeHtml(top1.student.full_name)}
+                                                <button type="button" onclick="App.openStudentGradeCard(${top1.student.id})" class="text-left font-display font-bold text-[#17243A] hover:text-[#5276A7] hover:underline cursor-pointer" title="View Individual Grade Card">
+                                                    ${escapeHtml(top1.student.full_name)}
+                                                </button>
                                             </h5>
                                             ${genderBadgeHtml(top1.student.gender, true)}
                                         </div>
@@ -4768,10 +4812,10 @@ const App = (() => {
                 </div>
 
                 <!-- Desktop Table View (hidden on mobile, visible on md+) -->
-                <div class="hidden md:block overflow-x-auto no-print">
+                <div class="hidden md:block overflow-auto max-h-[620px] custom-scrollbar no-print border-t border-[#C5D5EA]">
                     <table class="w-full text-left border-collapse text-sm print-table" aria-label="Consolidated Grade Level Honors Roster">
-                        <thead>
-                            <tr class="bg-[#EBF1F8] border-b border-[#C5D5EA] text-xs font-bold uppercase tracking-wider text-[#2C4870]">
+                        <thead class="sticky top-0 z-20 bg-[#EBF1F8] shadow-xs">
+                            <tr class="bg-[#EBF1F8] border-b-2 border-[#C5D5EA] text-xs font-bold uppercase tracking-wider text-[#2C4870]">
                                 <th scope="col" class="py-3 px-3 text-center">Level Rank</th>
                                 <th scope="col" class="py-3 px-3">Student ID</th>
                                 <th scope="col" class="py-3 px-3.5">Student Name</th>
@@ -4933,10 +4977,10 @@ const App = (() => {
                     </div>
                 </div>
 
-                <div class="flex-1 overflow-auto custom-scrollbar">
+                <div class="flex-1 overflow-auto custom-scrollbar max-h-[620px] border-t border-[#D8DEE8]">
                     <table class="w-full text-left border-collapse print-table" aria-label="Grade Level Master Ranking Table">
-                        <thead class="sticky top-0 z-10">
-                            <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                        <thead class="sticky top-0 z-20 bg-[#F5F7FA] shadow-xs">
+                            <tr class="bg-[#F5F7FA] border-b-2 border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
                                 <th scope="col" class="py-2.5 px-3 text-center">Level Rank</th>
                                 <th scope="col" class="py-2.5 px-3.5 min-w-[170px]">Student Name</th>
                                 <th scope="col" class="py-2.5 px-3">Section &amp; Adviser</th>
@@ -4970,10 +5014,10 @@ const App = (() => {
 
         const pulloutHtml = standings.qualifiers.length > 0
             ? `
-                <div class="overflow-x-auto">
+                <div class="overflow-auto max-h-[460px] custom-scrollbar border-t border-[#99D8CC]">
                     <table class="w-full text-left border-collapse text-sm print-table">
-                        <thead>
-                            <tr class="bg-[#D5F0EA]/60 border-b border-[#99D8CC] text-xs font-bold uppercase tracking-wider text-[#0F766E]">
+                        <thead class="sticky top-0 z-20 bg-[#D5F0EA] shadow-xs">
+                            <tr class="bg-[#D5F0EA] border-b border-[#99D8CC] text-xs font-bold uppercase tracking-wider text-[#0F766E]">
                                 <th scope="col" class="py-2.5 px-3 text-center">Rank</th>
                                 <th scope="col" class="py-2.5 px-3">Student ID</th>
                                 <th scope="col" class="py-2.5 px-3.5">Student Name</th>
@@ -4998,7 +5042,10 @@ const App = (() => {
                                     </td>
                                     <td class="py-2.5 px-3.5 font-display font-bold text-[#17243A] whitespace-nowrap">
                                         <div class="flex items-center gap-2">
-                                            <span>${escapeHtml(q.student.full_name)}</span>
+                                            <button type="button" onclick="App.openStudentGradeCard(${q.student.id})" class="text-left font-display font-bold text-[#17243A] hover:text-[#0F766E] hover:underline cursor-pointer flex items-center gap-1" title="View Individual Grade Card">
+                                                <span>${escapeHtml(q.student.full_name)}</span>
+                                                <svg class="w-3.5 h-3.5 text-[#0F766E] opacity-70 hover:opacity-100 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                            </button>
                                             ${genderBadgeHtml(q.student.gender, true)}
                                         </div>
                                     </td>
@@ -5049,10 +5096,10 @@ const App = (() => {
             const idx = standings.subjects.indexOf(sub);
             const col = excelColLetter(idx);
             return `
-                <th scope="col" class="py-2.5 px-2 text-center border-l border-[#D8DEE8]">
-                    <div class="text-xs font-mono font-bold text-[#5276A7]">${col}*${formatUnits(sub.units)}</div>
-                    <div class="text-xs font-bold text-[#17243A]">${escapeHtml(sub.subject_code)}</div>
-                    <div class="text-xs text-[#475569]">${formatUnits(sub.units)}u</div>
+                <th scope="col" class="py-2.5 px-2 text-center border-l border-[#D8DEE8] sticky top-0 z-20 bg-[#F5F7FA] shadow-xs min-w-[78px]">
+                    <div class="text-[11px] font-mono font-bold text-[#5276A7]">${col}*${formatUnits(sub.units)}</div>
+                    <div class="text-xs font-bold text-[#17243A] truncate max-w-[85px] mx-auto" title="${escapeHtml(sub.subject_name)}">${escapeHtml(sub.subject_code)}</div>
+                    <div class="text-[11px] text-[#475569]">${formatUnits(sub.units)}u</div>
                 </th>
             `;
         }).join('');
@@ -5138,19 +5185,28 @@ const App = (() => {
 
                 return `
                     <tr class="hover:bg-[#F5F7FA] transition text-sm ${r.isQualified ? 'bg-[#D5F0EA]/20' : r.isFailingOverall ? 'bg-[#F5DFEB]/20' : ''}">
-                        <td class="py-2 px-3 whitespace-nowrap text-center">
+                        <td class="py-2 px-3 whitespace-nowrap text-center sticky left-0 z-10 bg-white group-hover:bg-[#F5F7FA]">
                             ${r.rank ? `
                                 <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${r.rank === 1 ? 'bg-[#17243A] text-white shadow-2xs' : r.rank <= 3 ? 'bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]' : 'bg-[#F5F7FA] text-[#17243A] border border-[#D8DEE8]'}">
                                     ${r.rank}
                                 </span>
                             ` : '—'}
                         </td>
-                        <td class="py-2 px-3.5 whitespace-nowrap">
-                            <div class="flex items-center gap-1.5">
-                                <span class="font-semibold text-[#17243A] text-sm">${escapeHtml(r.student.full_name)}</span>
-                                ${genderBadgeHtml(r.student.gender, true)}
+                        <td class="py-2 px-3.5 whitespace-nowrap sticky left-[48px] z-10 bg-white group-hover:bg-[#F5F7FA] border-r-2 border-[#CBD5E1]">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-1.5">
+                                        <button type="button" onclick="App.openStudentGradeCardModal(${r.student.id})" class="text-left font-bold text-[#17243A] hover:text-[#5276A7] hover:underline cursor-pointer flex items-center gap-1 truncate" title="View Individual Grade Card Modal">
+                                            <span>${escapeHtml(r.student.full_name)}</span>
+                                        </button>
+                                        ${genderBadgeHtml(r.student.gender, true)}
+                                    </div>
+                                    <div class="font-mono text-xs text-[#475569]">${escapeHtml(r.student.student_no)} &bull; Row ${r.excel_row}</div>
+                                </div>
+                                <button type="button" onclick="App.openStudentGradeCardModal(${r.student.id})" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold bg-[#EBF1F8] text-[#2C4870] hover:bg-[#17243A] hover:text-white border border-[#C5D5EA] transition cursor-pointer shrink-0" title="Open Grade Card Modal">
+                                    <span>📋 Grades</span>
+                                </button>
                             </div>
-                            <div class="font-mono text-xs text-[#475569]">${escapeHtml(r.student.student_no)} &bull; Row ${r.excel_row}</div>
                         </td>
                         ${subCells}
                         <td class="py-2 px-2.5 text-center font-mono text-xs text-[#475569] border-l border-[#D8DEE8]" title="${escapeHtml(studentExactFormula)}">
@@ -5281,17 +5337,17 @@ const App = (() => {
                         </p>
                     </div>
                 </div>
-                <div class="flex-1 overflow-auto custom-scrollbar">
+                <div class="flex-1 overflow-auto custom-scrollbar sticky-table-container max-h-[640px] border-t border-[#D8DEE8]">
                     <table class="w-full text-left border-collapse print-table" aria-label="Quarterly Grade Sheet Table">
-                        <thead class="sticky top-0 z-10">
-                            <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
-                                <th scope="col" class="py-2.5 px-3 text-center">Rank</th>
-                                <th scope="col" class="py-2.5 px-3.5 min-w-[180px]">Student Name</th>
+                        <thead class="sticky top-0 z-20 shadow-xs bg-[#F5F7FA]">
+                            <tr class="bg-[#F5F7FA] border-b-2 border-[#CBD5E1] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                <th scope="col" class="py-2.5 px-3 text-center sticky top-0 left-0 z-30 bg-[#F5F7FA] shadow-xs">Rank</th>
+                                <th scope="col" class="py-2.5 px-3.5 min-w-[190px] sticky top-0 left-[48px] z-30 bg-[#F5F7FA] border-r-2 border-[#CBD5E1] shadow-xs">Student Name</th>
                                 ${subjectColsHeader}
-                                <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Sum / Units</th>
-                                <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8]">Min Grade</th>
-                                <th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8]">Weighted Avg</th>
-                                <th scope="col" class="py-2.5 px-3.5 border-l border-[#D8DEE8]">Status &amp; Pullout Check</th>
+                                <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8] sticky top-0 z-20 bg-[#F5F7FA] shadow-xs">Sum / Units</th>
+                                <th scope="col" class="py-2.5 px-2.5 text-center border-l border-[#D8DEE8] sticky top-0 z-20 bg-[#F5F7FA] shadow-xs">Min Grade</th>
+                                <th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8] sticky top-0 z-20 bg-[#F5F7FA] shadow-xs">Weighted Avg</th>
+                                <th scope="col" class="py-2.5 px-3.5 border-l border-[#D8DEE8] sticky top-0 z-20 bg-[#F5F7FA] shadow-xs">Status &amp; Pullout Check</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[#D8DEE8]/60 text-sm">
@@ -5378,6 +5434,1046 @@ const App = (() => {
             state.reportSectionId = activeSection.id;
             renderSingleSectionReport(container, activeSection, quarterTitle);
         }
+    }
+
+
+    // ==================== INDIVIDUAL STUDENT REPORT CARD & SUBJECT GRADES (VIEW 8 & MODAL 12) ====================
+    function openStudentGradeCardModal(studentId = null) {
+        if (studentId) {
+            state.studentReportStudentId = Number(studentId);
+        } else if (!state.studentReportStudentId) {
+            const defaultSecId = state.reportSectionId || state.gradingSectionId || state.dashboardSectionId;
+            const matchStudent = (defaultSecId && state.students.find(s => s.section_id === Number(defaultSecId))) || state.students[0];
+            state.studentReportStudentId = matchStudent ? matchStudent.id : null;
+        }
+
+        renderStudentGradeCardModal();
+        openModal('studentGradeCardModal');
+    }
+
+    function openStudentGradeCard(studentId) {
+        openStudentGradeCardModal(studentId);
+    }
+
+    function onStudentModalSectionChange(sectionId) {
+        const secId = Number(sectionId);
+        const secStudents = state.students.filter(s => s.section_id === secId);
+        if (secStudents.length > 0) {
+            state.studentReportStudentId = secStudents[0].id;
+        }
+        renderStudentGradeCardModal();
+    }
+
+    function navigateStudentModal(direction) {
+        if (!state.studentReportStudentId) return;
+        const currentStudent = state.students.find(s => s.id === Number(state.studentReportStudentId));
+        if (!currentStudent) return;
+        const sectionStudents = state.students.filter(s => s.section_id === currentStudent.section_id);
+        const currentIdx = sectionStudents.findIndex(s => s.id === currentStudent.id);
+        const nextIdx = currentIdx + direction;
+        if (nextIdx >= 0 && nextIdx < sectionStudents.length) {
+            state.studentReportStudentId = sectionStudents[nextIdx].id;
+            renderStudentGradeCardModal();
+        }
+    }
+
+    function setStudentModalQuarter(quarter) {
+        state.studentReportQuarter = quarter || 'ALL';
+        renderStudentGradeCardModal();
+    }
+
+    function printStudentModalCard() {
+        document.body.setAttribute('data-print-target', 'student_modal');
+        window.print();
+        setTimeout(() => {
+            document.body.removeAttribute('data-print-target');
+        }, 1200);
+    }
+
+    function setStudentReportQuarter(quarter) {
+        state.studentReportQuarter = quarter || 'ALL';
+        renderStudentReportView();
+        renderStudentGradeCardModal();
+    }
+
+    function onStudentReportSectionChange(sectionId) {
+        const secId = Number(sectionId);
+        const sectionStudents = state.students.filter(s => s.section_id === secId);
+        if (sectionStudents.length > 0) {
+            state.studentReportStudentId = sectionStudents[0].id;
+        }
+        renderStudentReportView();
+        renderStudentGradeCardModal();
+    }
+
+    function navigateStudentReport(direction) {
+        if (!state.studentReportStudentId) return;
+        const currentStudent = state.students.find(s => s.id === Number(state.studentReportStudentId));
+        if (!currentStudent) return;
+        const sectionStudents = state.students.filter(s => s.section_id === currentStudent.section_id);
+        const currentIdx = sectionStudents.findIndex(s => s.id === currentStudent.id);
+        const nextIdx = currentIdx + direction;
+        if (nextIdx >= 0 && nextIdx < sectionStudents.length) {
+            state.studentReportStudentId = sectionStudents[nextIdx].id;
+            renderStudentReportView();
+            renderStudentGradeCardModal();
+        }
+    }
+
+    function printStudentReportCard() {
+        document.body.setAttribute('data-print-target', 'student_card');
+        window.print();
+        setTimeout(() => {
+            document.body.removeAttribute('data-print-target');
+        }, 1200);
+    }
+
+    function renderStudentGradeCardModal() {
+        const container = document.getElementById('studentGradeCardModalBody');
+        const modalSubtitle = document.getElementById('sgcmModalSubtitle');
+        if (!container) return;
+
+        if (!state.students || state.students.length === 0) {
+            container.innerHTML = `
+                <div class="bg-white rounded-2xl border border-[#D8DEE8] p-12 text-center">
+                    <h3 class="font-display font-bold text-[#17243A] text-base">No Students Enrolled</h3>
+                    <p class="text-sm text-[#475569] mt-1">Please add students to a section to view their individual grade card.</p>
+                </div>
+            `;
+            if (modalSubtitle) modalSubtitle.textContent = 'No enrolled students found';
+            return;
+        }
+
+        let student = state.students.find(s => s.id === Number(state.studentReportStudentId));
+        if (!student) {
+            const targetSecId = state.reportSectionId || state.dashboardSectionId;
+            student = state.students.find(s => s.section_id === Number(targetSecId)) || state.students[0];
+            state.studentReportStudentId = student.id;
+        }
+
+        const section = state.sections.find(s => s.id === student.section_id) || null;
+        const sectionStudents = section ? state.students.filter(s => s.section_id === section.id) : [student];
+        const studentIdx = sectionStudents.findIndex(s => s.id === student.id);
+        const prevStudent = studentIdx > 0 ? sectionStudents[studentIdx - 1] : null;
+        const nextStudent = studentIdx >= 0 && studentIdx < sectionStudents.length - 1 ? sectionStudents[studentIdx + 1] : null;
+
+        if (modalSubtitle) {
+            modalSubtitle.textContent = `${student.full_name} (${student.student_no}) • ${section ? `${section.section_name} (${section.year_level})` : 'Unassigned'}`;
+        }
+
+        const subjects = section ? (section.assigned_subjects || []) : [];
+        const totalSectionUnits = subjects.reduce((sum, s) => sum + Number(s.units || 0), 0);
+        const studentGradesObj = student.grades || {};
+
+        const subjectGradeRows = subjects.map((sub, idx) => {
+            const subId = Number(sub.subject_id);
+            const subQuarters = studentGradesObj[subId] || {};
+            const q1 = (subQuarters.Q1 !== undefined && subQuarters.Q1 !== null && subQuarters.Q1 !== '') ? Number(subQuarters.Q1) : null;
+            const q2 = (subQuarters.Q2 !== undefined && subQuarters.Q2 !== null && subQuarters.Q2 !== '') ? Number(subQuarters.Q2) : null;
+            const q3 = (subQuarters.Q3 !== undefined && subQuarters.Q3 !== null && subQuarters.Q3 !== '') ? Number(subQuarters.Q3) : null;
+            const q4 = (subQuarters.Q4 !== undefined && subQuarters.Q4 !== null && subQuarters.Q4 !== '') ? Number(subQuarters.Q4) : null;
+
+            const gradedQuarters = [q1, q2, q3, q4].filter(v => v !== null);
+            const finalRating = gradedQuarters.length > 0
+                ? gradedQuarters.reduce((acc, v) => acc + v, 0) / gradedQuarters.length
+                : null;
+
+            let remarks = '—';
+            let remarksClass = 'text-[#475569]';
+            if (finalRating !== null) {
+                if (finalRating >= GRADING_POLICY.passingGrade) {
+                    remarks = 'Passed';
+                    remarksClass = 'text-[#0F766E] font-bold';
+                } else {
+                    remarks = 'Failed';
+                    remarksClass = 'text-[#842D60] font-bold';
+                }
+            }
+
+            return {
+                index: idx + 1,
+                subject: sub,
+                units: Number(sub.units || 0),
+                q1,
+                q2,
+                q3,
+                q4,
+                finalRating,
+                remarks,
+                remarksClass
+            };
+        });
+
+        // Compute Quarterly Weighted Averages
+        const quarterAverages = {};
+        ['Q1', 'Q2', 'Q3', 'Q4'].forEach(qKey => {
+            let qWeightedSum = 0;
+            let qGradedUnits = 0;
+            subjectGradeRows.forEach(sr => {
+                const g = sr[qKey.toLowerCase()];
+                if (g !== null) {
+                    qWeightedSum += g * sr.units;
+                    qGradedUnits += sr.units;
+                }
+            });
+            quarterAverages[qKey] = qGradedUnits > 0 ? (qWeightedSum / qGradedUnits) : null;
+        });
+
+        // Overall Final Weighted Average
+        let totalFinalWeightedSum = 0;
+        let totalFinalUnits = 0;
+        let minFinalGrade = null;
+        let hasBelow85 = false;
+        let hasFailing = false;
+
+        subjectGradeRows.forEach(sr => {
+            if (sr.finalRating !== null) {
+                totalFinalWeightedSum += sr.finalRating * sr.units;
+                totalFinalUnits += sr.units;
+                if (minFinalGrade === null || sr.finalRating < minFinalGrade) {
+                    minFinalGrade = sr.finalRating;
+                }
+                if (sr.finalRating < 85) hasBelow85 = true;
+                if (sr.finalRating < 75) hasFailing = true;
+            }
+        });
+
+        const generalAverage = totalFinalUnits > 0 ? (totalFinalWeightedSum / totalFinalUnits) : null;
+
+        // Honor standing & DepEd descriptors
+        let honorBadge = '';
+        let honorDistinction = '';
+        const roundedAvg = generalAverage !== null ? Math.round(generalAverage) : null;
+        const meetsAverage = generalAverage !== null && (generalAverage >= 89.495 || roundedAvg >= 90);
+        const isHonorQualified = meetsAverage && !hasBelow85 && totalFinalUnits === totalSectionUnits;
+
+        if (isHonorQualified) {
+            if (generalAverage >= 97.995) {
+                honorDistinction = 'With Highest Honors';
+                honorBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] shadow-2xs">🏆 With Highest Honors</span>`;
+            } else if (generalAverage >= 94.995) {
+                honorDistinction = 'With High Honors';
+                honorBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">🎖️ With High Honors</span>`;
+            } else {
+                honorDistinction = 'With Honors';
+                honorBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">🎖️ With Honors</span>`;
+            }
+        } else if (generalAverage !== null) {
+            if (generalAverage >= 75 && !hasFailing) {
+                honorDistinction = 'Passed (Regular)';
+                honorBadge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">✓ Passed &bull; Regular</span>`;
+            } else {
+                honorDistinction = 'Retained / Incomplete';
+                honorBadge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]">✕ Retained / Needs Remediation</span>`;
+            }
+        } else {
+            honorDistinction = 'Grades Pending';
+            honorBadge = `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-[#F5F7FA] text-[#475569] border border-[#D8DEE8]">Grades Pending</span>`;
+        }
+
+        // Section & Grade Level Rank
+        let sectionRankDisplay = '—';
+        if (section) {
+            const secStandings = computeSectionStandings(section.id, 'FINAL') || computeSectionStandings(section.id, 'Q1');
+            if (secStandings) {
+                const matchRow = secStandings.rankedRows.find(r => r.student.id === student.id);
+                if (matchRow && matchRow.rank) {
+                    sectionRankDisplay = `Rank #${matchRow.rank} of ${secStandings.rankedRows.length}`;
+                }
+            }
+        }
+
+        let gradeLevelRankDisplay = '—';
+        if (section && section.year_level) {
+            const glStandings = computeGradeLevelStandings(section.year_level, 'FINAL') || computeGradeLevelStandings(section.year_level, 'Q1');
+            if (glStandings) {
+                const matchRow = glStandings.allStudentsList.find(r => r.student.id === student.id);
+                if (matchRow && matchRow.overallRank) {
+                    gradeLevelRankDisplay = `Rank #${matchRow.overallRank} of ${glStandings.allStudentsList.length}`;
+                }
+            }
+        }
+
+        const formatGrade = val => {
+            if (val === null || val === undefined || isNaN(val)) return '<span class="text-slate-400 font-normal">—</span>';
+            const num = Number(val);
+            const isFailing = num < 75;
+            const isHonor = num >= 90;
+            const isVerySat = num >= 85 && num < 90;
+            const cls = isFailing ? 'text-[#842D60] font-bold bg-[#F5DFEB]/50' : isHonor ? 'text-[#0F766E] font-bold' : isVerySat ? 'text-[#2C4870] font-semibold' : 'text-[#80530F] font-semibold';
+            return `<span class="px-2 py-0.5 rounded ${cls}">${num.toFixed(0)}</span>`;
+        };
+
+        const activeQ = state.studentReportQuarter || 'ALL';
+
+        // Table Rows HTML for Modal
+        const tableRowsHtml = subjectGradeRows.map(sr => {
+            const sub = sr.subject;
+            return `
+                <tr class="hover:bg-[#F5F7FA] transition text-sm">
+                    <td class="py-2.5 px-3 text-center font-mono text-xs text-[#475569]">${sr.index}</td>
+                    <td class="py-2.5 px-3.5">
+                        <div class="font-bold text-[#17243A] text-sm">${escapeHtml(sub.subject_code)}</div>
+                        <div class="text-xs text-[#475569] leading-tight">${escapeHtml(sub.subject_name)}</div>
+                    </td>
+                    <td class="py-2.5 px-3 whitespace-nowrap text-xs text-[#475569]">
+                        ${escapeHtml(sub.instructor || 'Unassigned')}
+                    </td>
+                    <td class="py-2.5 px-3 text-center whitespace-nowrap font-mono text-xs font-semibold text-[#17243A]">
+                        ${sr.units.toFixed(1)}
+                    </td>
+                    ${activeQ === 'ALL' || activeQ === 'Q1' ? `<td class="py-2.5 px-3 text-center whitespace-nowrap border-l border-[#D8DEE8]/70 font-mono text-sm">${formatGrade(sr.q1)}</td>` : ''}
+                    ${activeQ === 'ALL' || activeQ === 'Q2' ? `<td class="py-2.5 px-3 text-center whitespace-nowrap border-l border-[#D8DEE8]/70 font-mono text-sm">${formatGrade(sr.q2)}</td>` : ''}
+                    ${activeQ === 'ALL' || activeQ === 'Q3' ? `<td class="py-2.5 px-3 text-center whitespace-nowrap border-l border-[#D8DEE8]/70 font-mono text-sm">${formatGrade(sr.q3)}</td>` : ''}
+                    ${activeQ === 'ALL' || activeQ === 'Q4' ? `<td class="py-2.5 px-3 text-center whitespace-nowrap border-l border-[#D8DEE8]/70 font-mono text-sm">${formatGrade(sr.q4)}</td>` : ''}
+                    <td class="py-2.5 px-3 text-center whitespace-nowrap border-l border-[#D8DEE8] bg-[#F5F7FA]/70 font-display font-extrabold text-sm ${sr.finalRating && sr.finalRating >= 90 ? 'text-[#0F766E]' : sr.finalRating && sr.finalRating < 75 ? 'text-[#842D60]' : 'text-[#17243A]'}">
+                        ${sr.finalRating !== null ? sr.finalRating.toFixed(2) : '—'}
+                    </td>
+                    <td class="py-2.5 px-3 text-center whitespace-nowrap border-l border-[#D8DEE8] text-xs ${sr.remarksClass}">
+                        ${sr.remarks}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <!-- Top Controls Bar: Section & Student Switcher -->
+            <div id="studentCardModalToolbar" class="bg-[#F5F7FA] rounded-2xl p-3.5 border border-[#D8DEE8] flex flex-col md:flex-row md:items-center justify-between gap-3 no-print">
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1">
+                    <!-- Section Selector -->
+                    <div class="sm:w-52">
+                        <label for="sgcmSectionSelect" class="block text-[10px] font-bold uppercase tracking-wider text-[#475569] mb-1">Section</label>
+                        <select id="sgcmSectionSelect" onchange="App.onStudentModalSectionChange(this.value)" class="w-full px-3 py-1.5 text-xs font-semibold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] focus:border-[#5276A7] outline-none cursor-pointer">
+                            ${state.sections.map(s => `
+                                <option value="${s.id}" ${section && section.id === s.id ? 'selected' : ''}>
+                                    ${escapeHtml(s.section_name)} (${escapeHtml(s.year_level)})
+                                </option>
+                            `).join('')}
+                        </select>
+                    </div>
+
+                    <!-- Student Selector -->
+                    <div class="flex-1 sm:max-w-sm">
+                        <label for="sgcmStudentSelect" class="block text-[10px] font-bold uppercase tracking-wider text-[#475569] mb-1">
+                            Learner (${sectionStudents.length} Students in Section)
+                        </label>
+                        <select id="sgcmStudentSelect" onchange="App.openStudentGradeCardModal(this.value)" class="w-full px-3 py-1.5 text-xs font-semibold rounded-xl border border-[#5276A7]/50 bg-white text-[#17243A] focus:ring-2 focus:ring-[#5276A7]/20 outline-none cursor-pointer">
+                            ${sectionStudents.map(st => `
+                                <option value="${st.id}" ${st.id === student.id ? 'selected' : ''}>
+                                    ${escapeHtml(st.full_name)} (${escapeHtml(st.student_no)})
+                                </option>
+                            `).join('')}
+                        </select>
+                    </div>
+
+                    <!-- Previous & Next Student Buttons -->
+                    <div class="flex items-center gap-1.5 pt-3 sm:pt-4">
+                        <button type="button" onclick="App.navigateStudentModal(-1)" ${!prevStudent ? 'disabled' : ''} class="px-2.5 py-1.5 text-xs font-bold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] hover:bg-[#EBF1F8] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer" title="${prevStudent ? `Previous: ${escapeHtml(prevStudent.full_name)}` : 'First student'}">
+                            ◀ Prev
+                        </button>
+                        <button type="button" onclick="App.navigateStudentModal(1)" ${!nextStudent ? 'disabled' : ''} class="px-2.5 py-1.5 text-xs font-bold rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] hover:bg-[#EBF1F8] disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer" title="${nextStudent ? `Next: ${escapeHtml(nextStudent.full_name)}` : 'Last student'}">
+                            Next ▶
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Evaluation Period View Tabs -->
+                <div class="flex items-center gap-1 p-1 bg-white rounded-xl border border-[#D8DEE8] self-start md:self-auto shrink-0">
+                    <button type="button" onclick="App.setStudentModalQuarter('ALL')" class="px-2 py-1 rounded-lg text-xs font-bold transition ${activeQ === 'ALL' ? 'bg-[#17243A] text-white shadow-2xs' : 'text-[#475569] hover:bg-[#F5F7FA]'} cursor-pointer">
+                        All Quarters
+                    </button>
+                    <button type="button" onclick="App.setStudentModalQuarter('Q1')" class="px-2 py-1 rounded-lg text-xs font-semibold transition ${activeQ === 'Q1' ? 'bg-[#17243A] text-white shadow-2xs' : 'text-[#475569] hover:bg-[#F5F7FA]'} cursor-pointer">
+                        Q1
+                    </button>
+                    <button type="button" onclick="App.setStudentModalQuarter('Q2')" class="px-2 py-1 rounded-lg text-xs font-semibold transition ${activeQ === 'Q2' ? 'bg-[#17243A] text-white shadow-2xs' : 'text-[#475569] hover:bg-[#F5F7FA]'} cursor-pointer">
+                        Q2
+                    </button>
+                    <button type="button" onclick="App.setStudentModalQuarter('Q3')" class="px-2 py-1 rounded-lg text-xs font-semibold transition ${activeQ === 'Q3' ? 'bg-[#17243A] text-white shadow-2xs' : 'text-[#475569] hover:bg-[#F5F7FA]'} cursor-pointer">
+                        Q3
+                    </button>
+                    <button type="button" onclick="App.setStudentModalQuarter('Q4')" class="px-2 py-1 rounded-lg text-xs font-semibold transition ${activeQ === 'Q4' ? 'bg-[#17243A] text-white shadow-2xs' : 'text-[#475569] hover:bg-[#F5F7FA]'} cursor-pointer">
+                        Q4
+                    </button>
+                </div>
+            </div>
+
+            <!-- Student Profile Hero Card -->
+            <div id="printStudentForm138ModalCard" class="bg-gradient-to-br from-[#17243A] via-[#1E304F] to-[#2C4870] text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-[#3A537C]">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <!-- Left: Student Info -->
+                    <div class="flex items-center gap-3.5">
+                        <div class="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-[#FFF0D1] to-[#F0D296] text-[#80530F] font-black text-xl flex items-center justify-center shrink-0 shadow-sm ring-4 ring-white/10">
+                            ${escapeHtml((student.full_name || 'ST').split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase())}
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap mb-1">
+                                ${honorBadge}
+                                ${genderBadgeHtml(student.gender, true)}
+                                <span class="px-2 py-0.5 rounded text-[11px] font-mono bg-white/10 text-slate-200">LRN: ${escapeHtml(student.student_no)}</span>
+                            </div>
+                            <h2 class="font-display font-black text-lg sm:text-xl text-white tracking-tight">
+                                ${escapeHtml(student.full_name)}
+                            </h2>
+                            <p class="text-xs text-slate-300 mt-0.5">
+                                ${section ? `Section: <strong>${escapeHtml(section.section_name)}</strong> (${escapeHtml(section.year_level)}) &bull; Adviser: ${escapeHtml(section.adviser || 'Unassigned')}` : 'No section assigned'}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Right: KPI Metric Chips -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
+                        <div class="bg-white/10 border border-white/15 rounded-xl px-3 py-2 text-center backdrop-blur-xs">
+                            <span class="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">General Average</span>
+                            <span class="font-display font-black text-lg sm:text-xl text-[#FFF0D1] block mt-0.5">
+                                ${generalAverage !== null ? generalAverage.toFixed(2) : '—'}
+                            </span>
+                            ${generalAverage !== null && generalAverage < 90 && generalAverage >= 89.495 ? `<span class="text-[9px] font-bold text-[#D5F0EA] block">Rounds to 90.00</span>` : ''}
+                        </div>
+                        <div class="bg-white/10 border border-white/15 rounded-xl px-3 py-2 text-center backdrop-blur-xs">
+                            <span class="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">Distinction</span>
+                            <span class="font-display font-bold text-xs text-white block mt-1 truncate" title="${escapeHtml(honorDistinction)}">
+                                ${escapeHtml(honorDistinction)}
+                            </span>
+                        </div>
+                        <div class="bg-white/10 border border-white/15 rounded-xl px-3 py-2 text-center backdrop-blur-xs">
+                            <span class="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">Section Rank</span>
+                            <span class="font-display font-bold text-sm text-[#D5F0EA] block mt-1">
+                                ${sectionRankDisplay}
+                            </span>
+                        </div>
+                        <div class="bg-white/10 border border-white/15 rounded-xl px-3 py-2 text-center backdrop-blur-xs">
+                            <span class="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">Level Rank</span>
+                            <span class="font-display font-bold text-sm text-[#FFF0D1] block mt-1">
+                                ${gradeLevelRankDisplay}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Subject-by-Subject Grades Table Card -->
+            <div class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs overflow-hidden flex flex-col">
+                <div class="px-4 py-3 bg-[#F5F7FA] border-b border-[#D8DEE8] flex items-center justify-between gap-2 shrink-0">
+                    <div>
+                        <h4 class="font-display font-bold text-[#17243A] text-sm">
+                            Enrolled Subjects &amp; Performance (${subjects.length} Subjects)
+                        </h4>
+                        <p class="text-xs text-[#475569]">
+                            Formula: <code>SUM(Grade * Units) / ${totalSectionUnits.toFixed(1)} Units</code>
+                        </p>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870]">
+                        ${totalSectionUnits.toFixed(1)} Total Units
+                    </span>
+                </div>
+
+                <div class="overflow-auto custom-scrollbar sticky-table-container max-h-[460px]">
+                    <table class="w-full text-left border-collapse print-table" aria-label="Student Grades Table Modal">
+                        <thead class="sticky top-0 z-20 shadow-xs bg-[#F5F7FA]">
+                            <tr class="bg-[#F5F7FA] border-b-2 border-[#CBD5E1] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                <th scope="col" class="py-2.5 px-3 text-center sticky top-0 bg-[#F5F7FA]">#</th>
+                                <th scope="col" class="py-2.5 px-3.5 min-w-[180px] sticky top-0 bg-[#F5F7FA]">Subject Code &amp; Title</th>
+                                <th scope="col" class="py-2.5 px-3 min-w-[130px] sticky top-0 bg-[#F5F7FA]">Assigned Teacher</th>
+                                <th scope="col" class="py-2.5 px-3 text-center sticky top-0 bg-[#F5F7FA]">Units</th>
+                                ${activeQ === 'ALL' || activeQ === 'Q1' ? '<th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8] sticky top-0 bg-[#F5F7FA]">1st Qtr</th>' : ''}
+                                ${activeQ === 'ALL' || activeQ === 'Q2' ? '<th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8] sticky top-0 bg-[#F5F7FA]">2nd Qtr</th>' : ''}
+                                ${activeQ === 'ALL' || activeQ === 'Q3' ? '<th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8] sticky top-0 bg-[#F5F7FA]">3rd Qtr</th>' : ''}
+                                ${activeQ === 'ALL' || activeQ === 'Q4' ? '<th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8] sticky top-0 bg-[#F5F7FA]">4th Qtr</th>' : ''}
+                                <th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8] sticky top-0 bg-[#F5F7FA]">Final Rating</th>
+                                <th scope="col" class="py-2.5 px-3 text-center border-l border-[#D8DEE8] sticky top-0 bg-[#F5F7FA]">Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-[#D8DEE8]/60 text-sm bg-white">
+                            ${tableRowsHtml}
+                        </tbody>
+                        <tfoot class="sticky bottom-0 z-10 bg-[#F5F7FA] border-t-2 border-[#CBD5E1] text-xs font-bold text-[#17243A]">
+                            <tr>
+                                <td colspan="3" class="py-2.5 px-3.5 text-right font-display uppercase tracking-wider text-[#475569]">
+                                    Weighted General Average:
+                                </td>
+                                <td class="py-2.5 px-3 text-center font-mono font-bold text-[#17243A]">
+                                    ${totalSectionUnits.toFixed(1)}u
+                                </td>
+                                ${activeQ === 'ALL' || activeQ === 'Q1' ? `<td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] font-mono text-sm font-bold text-[#0F766E]">${quarterAverages.Q1 !== null ? quarterAverages.Q1.toFixed(2) : '—'}</td>` : ''}
+                                ${activeQ === 'ALL' || activeQ === 'Q2' ? `<td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] font-mono text-sm font-bold text-[#0F766E]">${quarterAverages.Q2 !== null ? quarterAverages.Q2.toFixed(2) : '—'}</td>` : ''}
+                                ${activeQ === 'ALL' || activeQ === 'Q3' ? `<td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] font-mono text-sm font-bold text-[#0F766E]">${quarterAverages.Q3 !== null ? quarterAverages.Q3.toFixed(2) : '—'}</td>` : ''}
+                                ${activeQ === 'ALL' || activeQ === 'Q4' ? `<td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] font-mono text-sm font-bold text-[#0F766E]">${quarterAverages.Q4 !== null ? quarterAverages.Q4.toFixed(2) : '—'}</td>` : ''}
+                                <td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] bg-[#FFF0D1]/60 font-display font-black text-base text-[#80530F]">
+                                    ${generalAverage !== null ? generalAverage.toFixed(2) : '—'}
+                                </td>
+                                <td class="py-2.5 px-3 text-center border-l border-[#D8DEE8] text-xs font-extrabold text-[#0F766E]">
+                                    ${generalAverage && generalAverage >= 75 ? (isHonorQualified ? 'PROMOTED / HONORS' : 'PROMOTED') : 'PENDING'}
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Modal Footer: Descriptors and Close Button -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                <div class="text-xs text-[#475569]">
+                    <span class="font-bold text-[#17243A]">Philippine Academic Standard:</span>
+                    Passing grade &ge; 75.00 &bull; Honors &ge; 90.00 (89.50+ rounds to 90) &bull; Subject floor &ge; 85.00
+                </div>
+                <div class="flex items-center gap-2 self-end sm:self-auto">
+                    <button type="button" onclick="App.printStudentModalCard()" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#17243A] hover:bg-[#243752] transition cursor-pointer flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                        <span>Print Form 138</span>
+                    </button>
+                    <button type="button" onclick="App.closeModal('studentGradeCardModal')" class="px-4 py-2 rounded-xl text-xs font-semibold text-[#475569] bg-[#F5F7FA] hover:bg-[#D8DEE8] border border-[#D8DEE8] transition cursor-pointer">
+                        Close
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    // ==================== VIEW 8: STUDENT GRADE CARDS & PROGRESS DIRECTORY ====================
+    function setStudentReportSectionFilter(secId) {
+        state.studentReportSectionFilter = secId ? String(secId) : '';
+        state.studentReportCurrentPage = 1;
+        renderStudentReportView();
+    }
+
+    function setStudentReportGenderFilter(gender) {
+        state.studentReportGenderFilter = gender || '';
+        state.studentReportCurrentPage = 1;
+        renderStudentReportView();
+    }
+
+    function setStudentReportYearFilter(year) {
+        state.studentReportYearFilter = year || '';
+        state.studentReportCurrentPage = 1;
+        renderStudentReportView();
+    }
+
+    function setStudentReportQuarterFilter(quarter) {
+        state.studentReportQuarter = quarter || 'FINAL';
+        state.studentReportCurrentPage = 1;
+        renderStudentReportView();
+    }
+
+    function onStudentReportSearch(query) {
+        state.studentReportSearch = (query || '').trim().toLowerCase();
+        state.studentReportCurrentPage = 1;
+        renderStudentReportView();
+    }
+
+    function setStudentReportPage(page) {
+        state.studentReportCurrentPage = Math.max(1, Number(page));
+        renderStudentReportView();
+    }
+
+    function setStudentReportPageSize(size) {
+        state.studentReportPageSize = size === 'ALL' ? 'ALL' : Number(size);
+        state.studentReportCurrentPage = 1;
+        renderStudentReportView();
+    }
+
+    function resetStudentReportFilters() {
+        state.studentReportSectionFilter = '';
+        state.studentReportGenderFilter = '';
+        state.studentReportYearFilter = '';
+        state.studentReportSearch = '';
+        state.studentReportQuarter = 'FINAL';
+        state.studentReportCurrentPage = 1;
+        const searchInput = document.getElementById('studentReportSearchInput');
+        if (searchInput) searchInput.value = '';
+        renderStudentReportView();
+    }
+
+    function getStudentEvaluationSummary(student, evalPeriod = 'FINAL') {
+        const sec = state.sections.find(s => s.id === student.section_id);
+        const subjects = sec ? (sec.assigned_subjects || []) : [];
+        const totalUnits = subjects.reduce((sum, s) => sum + Number(s.units || 0), 0);
+        const grades = student.grades || {};
+
+        let totalWeightedSum = 0;
+        let totalGradedUnits = 0;
+        let minGrade = null;
+        let hasBelow85 = false;
+        let hasFailing = false;
+
+        subjects.forEach(sub => {
+            const subId = Number(sub.subject_id);
+            const u = Number(sub.units || 0);
+            const subGrades = grades[subId] || {};
+
+            let g = null;
+            if (evalPeriod === 'FINAL' || evalPeriod === 'ALL') {
+                const qs = ['Q1', 'Q2', 'Q3', 'Q4']
+                    .map(k => subGrades[k])
+                    .filter(v => v !== undefined && v !== null && v !== '')
+                    .map(Number);
+                if (qs.length > 0) {
+                    g = qs.reduce((a, b) => a + b, 0) / qs.length;
+                }
+            } else {
+                const v = subGrades[evalPeriod];
+                if (v !== undefined && v !== null && v !== '') {
+                    g = Number(v);
+                }
+            }
+
+            if (g !== null) {
+                totalWeightedSum += g * u;
+                totalGradedUnits += u;
+                if (minGrade === null || g < minGrade) minGrade = g;
+                if (g < 85) hasBelow85 = true;
+                if (g < 75) hasFailing = true;
+            }
+        });
+
+        const average = totalGradedUnits > 0 ? (totalWeightedSum / totalGradedUnits) : null;
+        const roundedAvg = average !== null ? Math.round(average) : null;
+        const meetsAverage = average !== null && (average >= 89.495 || roundedAvg >= 90);
+        const isHonorQualified = meetsAverage && !hasBelow85 && totalGradedUnits === totalUnits && totalUnits > 0;
+
+        let distinction = 'Regular';
+        let badgeHtml = '';
+
+        if (isHonorQualified) {
+            if (average >= 97.995) {
+                distinction = 'With Highest Honors';
+                badgeHtml = '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] shadow-2xs">🏆 Highest Honors</span>';
+            } else if (average >= 94.995) {
+                distinction = 'With High Honors';
+                badgeHtml = '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">🎖️ High Honors</span>';
+            } else {
+                distinction = 'With Honors';
+                badgeHtml = '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#EBF1F8] text-[#2C4870] border border-[#C5D5EA]">🎖️ With Honors</span>';
+            }
+        } else if (average !== null) {
+            if (average >= 75 && !hasFailing) {
+                distinction = 'Passed';
+                badgeHtml = '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#D5F0EA] text-[#0F766E] border border-[#99D8CC]">✓ Passed</span>';
+            } else {
+                distinction = 'Needs Remediation';
+                badgeHtml = '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#F5DFEB] text-[#842D60] border border-[#E2B8CF]">✕ Remedial</span>';
+            }
+        } else {
+            distinction = 'Pending';
+            badgeHtml = '<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F5F7FA] text-[#475569] border border-[#D8DEE8]">Pending</span>';
+        }
+
+        return {
+            average,
+            minGrade,
+            hasBelow85,
+            hasFailing,
+            isHonorQualified,
+            distinction,
+            badgeHtml,
+            totalUnits,
+            subjectCount: subjects.length
+        };
+    }
+
+    function renderStudentReportView() {
+        const container = document.getElementById('studentReportViewContainer');
+        if (!container) return;
+
+        if (!state.students || state.students.length === 0) {
+            container.innerHTML = `
+                <div class="bg-white rounded-2xl border border-[#D8DEE8] p-12 text-center shadow-2xs">
+                    <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[#EBF1F8] text-[#2C4870] flex items-center justify-center text-3xl font-bold">
+                        🎓
+                    </div>
+                    <h3 class="font-display font-bold text-[#17243A] text-lg">No Students Enrolled Yet</h3>
+                    <p class="text-sm text-[#475569] mt-1 max-w-md mx-auto">
+                        Please enroll students and assign them to a section to review individual grade cards and print Form 138 reports.
+                    </p>
+                    <div class="mt-5">
+                        <button type="button" onclick="App.openStudentModal()" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-[#17243A] hover:bg-[#243752] shadow-sm transition cursor-pointer">
+                            + Enroll Students
+                        </button>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        const query = (state.studentReportSearch || '').trim().toLowerCase();
+        const yearFilter = state.studentReportYearFilter || '';
+        const sectionFilter = state.studentReportSectionFilter || '';
+        const genderFilter = state.studentReportGenderFilter || '';
+        const evalPeriod = state.studentReportQuarter || 'FINAL';
+
+        // Compute summary metrics across all enrolled students
+        const allStudentEvaluations = state.students.map(st => ({
+            student: st,
+            summary: getStudentEvaluationSummary(st, evalPeriod)
+        }));
+
+        const totalStudents = state.students.length;
+        const totalSections = state.sections.length;
+        const honorQualifiersCount = allStudentEvaluations.filter(e => e.summary.isHonorQualified).length;
+        const passingCount = allStudentEvaluations.filter(e => e.summary.average !== null && e.summary.average >= 75).length;
+        const gradedStudentsCount = allStudentEvaluations.filter(e => e.summary.average !== null).length;
+        const passRate = gradedStudentsCount > 0 ? Math.round((passingCount / gradedStudentsCount) * 100) : 0;
+
+        // Apply filters
+        const filteredList = allStudentEvaluations.filter(({ student: st }) => {
+            if (yearFilter && st.year_level !== yearFilter) return false;
+            if (sectionFilter && String(st.section_id) !== String(sectionFilter)) return false;
+            if (genderFilter && normalizeGenderClient(st.gender) !== genderFilter) return false;
+            if (!query) return true;
+            return (
+                (st.full_name || '').toLowerCase().includes(query) ||
+                (st.student_no || '').toLowerCase().includes(query) ||
+                (st.section_name || '').toLowerCase().includes(query) ||
+                (st.year_level || '').toLowerCase().includes(query)
+            );
+        });
+
+        // Pagination
+        const totalMatching = filteredList.length;
+        const pageSize = state.studentReportPageSize === 'ALL' ? 'ALL' : Number(state.studentReportPageSize) || 10;
+        const totalPages = pageSize === 'ALL' ? 1 : Math.max(1, Math.ceil(totalMatching / pageSize));
+        state.studentReportCurrentPage = Math.min(Math.max(1, state.studentReportCurrentPage || 1), totalPages);
+        const currentPage = state.studentReportCurrentPage;
+
+        const pagedList = pageSize === 'ALL'
+            ? filteredList
+            : filteredList.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+        // Section Pills
+        const allSecActive = !sectionFilter;
+        const sectionPillsHtml = [
+            `<button type="button" onclick="App.setStudentReportSectionFilter('')" class="px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer shrink-0 ${
+                allSecActive
+                    ? 'bg-[#17243A] text-white border-[#17243A] shadow-xs'
+                    : 'bg-white text-[#475569] border-[#D8DEE8] hover:text-[#17243A] hover:bg-[#F5F7FA]'
+            }">
+                All Sections <span class="ml-1 opacity-80 font-normal">(${totalStudents})</span>
+            </button>`,
+            ...state.sections.map(sec => {
+                const count = state.students.filter(s => s.section_id === sec.id).length;
+                const isSecActive = String(sectionFilter) === String(sec.id);
+                return `
+                    <button type="button" onclick="App.setStudentReportSectionFilter(${sec.id})" class="px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer shrink-0 ${
+                        isSecActive
+                            ? 'bg-[#17243A] text-white border-[#17243A] shadow-xs'
+                            : 'bg-white text-[#475569] border-[#D8DEE8] hover:text-[#17243A] hover:bg-[#F5F7FA]'
+                    }">
+                        ${escapeHtml(sec.section_name)} <span class="ml-1 opacity-80 font-normal">(${count})</span>
+                    </button>
+                `;
+            })
+        ].join('');
+
+        // Table Rows HTML
+        let tableRowsHtml = '';
+        if (pagedList.length === 0) {
+            tableRowsHtml = `
+                <tr>
+                    <td colspan="8" class="py-12 px-4 text-center">
+                        <p class="text-base font-bold text-[#17243A]">No student records match your filters</p>
+                        <p class="text-xs text-[#475569] mt-1">Try clearing your search query or selecting "All Sections".</p>
+                        <div class="mt-4">
+                            <button type="button" onclick="App.resetStudentReportFilters()" class="px-3.5 py-2 rounded-xl text-xs font-semibold text-[#17243A] bg-[#F5F7FA] hover:bg-[#D8DEE8] border border-[#D8DEE8] transition cursor-pointer">
+                                Clear Filters
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        } else {
+            tableRowsHtml = pagedList.map(({ student: st, summary }, idx) => {
+                const overallIdx = pageSize === 'ALL' ? idx + 1 : (currentPage - 1) * pageSize + idx + 1;
+                const initials = (st.full_name || 'ST').split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase();
+                const normGender = normalizeGenderClient(st.gender);
+
+                const avgColor = summary.average === null
+                    ? 'text-[#475569]'
+                    : summary.hasFailing
+                        ? 'text-[#842D60] font-bold'
+                        : summary.isHonorQualified
+                            ? 'text-[#0F766E] font-bold'
+                            : 'text-[#17243A] font-semibold';
+
+                return `
+                    <tr class="hover:bg-[#F5F7FA]/80 transition">
+                        <td class="py-3 px-3.5 align-middle text-center font-mono text-xs text-[#475569]">
+                            ${overallIdx}
+                        </td>
+                        <td class="py-3 px-3.5 align-middle whitespace-nowrap">
+                            <span class="font-mono text-xs font-semibold text-[#17243A] bg-[#F5F7FA] border border-[#D8DEE8] px-2 py-1 rounded-lg">${escapeHtml(st.student_no)}</span>
+                        </td>
+                        <td class="py-3 px-3.5 align-middle">
+                            <div class="flex items-center gap-2.5">
+                                <div class="w-8 h-8 rounded-full ${normGender === 'Female' ? 'bg-[#F5DFEB] text-[#842D60] border-[#E2B8CF]' : 'bg-[#EBF1F8] text-[#2C4870] border-[#C5D5EA]'} border flex items-center justify-center font-bold text-xs shrink-0">
+                                    ${initials}
+                                </div>
+                                <div>
+                                    <button type="button" onclick="App.openStudentGradeCardModal(${st.id})" class="text-left font-bold text-[#17243A] text-sm leading-tight hover:text-[#5276A7] hover:underline cursor-pointer block">
+                                        ${escapeHtml(st.full_name)}
+                                    </button>
+                                    <div class="flex items-center gap-1.5 mt-0.5">
+                                        ${genderBadgeHtml(st.gender, true)}
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="py-3 px-3.5 align-middle whitespace-nowrap">
+                            <div class="flex items-center gap-1.5">
+                                <span class="font-bold text-[#2C4870] bg-[#EBF1F8] px-2 py-0.5 rounded-md text-xs border border-[#C5D5EA]">
+                                    ${escapeHtml(st.section_name)}
+                                </span>
+                                <span class="px-2 py-0.5 text-[11px] font-semibold rounded-md border ${yearLevelBadgeClass(st.year_level)}">
+                                    ${escapeHtml(st.year_level)}
+                                </span>
+                            </div>
+                        </td>
+                        <td class="py-3 px-3.5 align-middle whitespace-nowrap text-xs text-[#475569]">
+                            <span class="font-semibold text-[#17243A]">${summary.subjectCount} Subjects</span>
+                            <span class="text-[#0F766E] font-bold">(${summary.totalUnits.toFixed(1)}u)</span>
+                        </td>
+                        <td class="py-3 px-3.5 align-middle text-center whitespace-nowrap">
+                            <span class="font-display text-sm ${avgColor}">
+                                ${summary.average !== null ? summary.average.toFixed(2) : '—'}
+                            </span>
+                        </td>
+                        <td class="py-3 px-3.5 align-middle whitespace-nowrap">
+                            ${summary.badgeHtml}
+                        </td>
+                        <td class="py-3 px-3.5 align-middle text-right whitespace-nowrap">
+                            <button type="button" onclick="App.openStudentGradeCardModal(${st.id})" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-[#17243A] hover:bg-[#243752] shadow-2xs hover:shadow-xs transition cursor-pointer">
+                                <svg class="w-3.5 h-3.5 text-[#FFF0D1]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                <span>View Grade Card</span>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Pagination HTML
+        let paginationHtml = '';
+        if (totalMatching > 0) {
+            const startItem = pageSize === 'ALL' ? 1 : (currentPage - 1) * pageSize + 1;
+            const endItem = pageSize === 'ALL' ? totalMatching : Math.min(totalMatching, currentPage * pageSize);
+
+            paginationHtml = `
+                <div class="px-5 py-3.5 bg-[#F5F7FA] border-t border-[#D8DEE8] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div class="flex items-center gap-2 text-[#475569]">
+                        <span>Showing <strong>${startItem}</strong> to <strong>${endItem}</strong> of <strong>${totalMatching}</strong> students</span>
+                    </div>
+
+                    <div class="flex items-center gap-3 self-end sm:self-auto">
+                        <div class="flex items-center gap-1.5">
+                            <label for="srPageSizeSelect" class="text-[#475569] font-medium">Per Page:</label>
+                            <select id="srPageSizeSelect" onchange="App.setStudentReportPageSize(this.value)" class="px-2 py-1 rounded-lg border border-[#D8DEE8] bg-white text-[#17243A] font-semibold outline-none cursor-pointer">
+                                <option value="10" ${String(state.studentReportPageSize) === '10' ? 'selected' : ''}>10</option>
+                                <option value="25" ${String(state.studentReportPageSize) === '25' ? 'selected' : ''}>25</option>
+                                <option value="50" ${String(state.studentReportPageSize) === '50' ? 'selected' : ''}>50</option>
+                                <option value="ALL" ${state.studentReportPageSize === 'ALL' ? 'selected' : ''}>All</option>
+                            </select>
+                        </div>
+
+                        ${pageSize !== 'ALL' && totalPages > 1 ? `
+                            <div class="flex items-center gap-1">
+                                <button type="button" onclick="App.setStudentReportPage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''} class="px-2.5 py-1 rounded-lg border border-[#D8DEE8] bg-white text-[#17243A] hover:bg-[#EBF1F8] disabled:opacity-40 disabled:cursor-not-allowed font-bold transition cursor-pointer">
+                                    &larr; Prev
+                                </button>
+                                <span class="px-2 font-semibold text-[#17243A]">Page ${currentPage} of ${totalPages}</span>
+                                <button type="button" onclick="App.setStudentReportPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''} class="px-2.5 py-1 rounded-lg border border-[#D8DEE8] bg-white text-[#17243A] hover:bg-[#EBF1F8] disabled:opacity-40 disabled:cursor-not-allowed font-bold transition cursor-pointer">
+                                    Next &rarr;
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = `
+            <!-- Top Hero Banner Card -->
+            <div class="bg-gradient-to-br from-[#17243A] via-[#1E304F] to-[#2C4870] text-white rounded-2xl p-5 sm:p-6 shadow-md border border-[#3A537C] no-print">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap mb-1.5">
+                            <span class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-[#FFF0D1] text-[#80530F] border border-[#F0D296] uppercase tracking-wider">
+                                🎓 Form 138 &bull; SF9 Portal
+                            </span>
+                            <span class="text-xs text-slate-300">Individual Learner Progress &amp; Grades Repository</span>
+                        </div>
+                        <h2 class="font-display font-extrabold text-xl sm:text-2xl text-white tracking-tight">
+                            Student Grade Cards &amp; Academic Progress Roster
+                        </h2>
+                        <p class="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                            Browse enrolled students below and click <strong class="text-[#FFF0D1]">"View Grade Card"</strong> to inspect their complete subject evaluations, quarterly grades (Q1–Q4), final averages, and export official DepEd Form 138 certificates.
+                        </p>
+                    </div>
+
+                    <!-- Evaluation Period Selector -->
+                    <div class="bg-white/10 border border-white/20 rounded-xl p-3 shrink-0 backdrop-blur-xs flex flex-col gap-1.5">
+                        <label for="srEvalPeriodSelect" class="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                            Evaluation Basis
+                        </label>
+                        <select id="srEvalPeriodSelect" onchange="App.setStudentReportQuarterFilter(this.value)" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-[#17243A] focus:ring-2 focus:ring-[#FFF0D1] outline-none cursor-pointer">
+                            <option value="FINAL" ${evalPeriod === 'FINAL' ? 'selected' : ''}>Cumulative Final Rating</option>
+                            <option value="Q1" ${evalPeriod === 'Q1' ? 'selected' : ''}>1st Quarter Evaluation</option>
+                            <option value="Q2" ${evalPeriod === 'Q2' ? 'selected' : ''}>2nd Quarter Evaluation</option>
+                            <option value="Q3" ${evalPeriod === 'Q3' ? 'selected' : ''}>3rd Quarter Evaluation</option>
+                            <option value="Q4" ${evalPeriod === 'Q4' ? 'selected' : ''}>4th Quarter Evaluation</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Summary KPI Metric Cards (4 Cards) -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5 no-print">
+                <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-xl bg-[#EBF1F8] text-[#17243A] flex items-center justify-center shrink-0 font-bold text-xl">
+                        🎓
+                    </div>
+                    <div>
+                        <p class="text-[11px] font-bold text-[#475569] uppercase tracking-wider">Total Enrolled</p>
+                        <p class="text-xl font-bold font-display text-[#17243A] mt-0.5">${totalStudents}</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-xl bg-[#D5F0EA] text-[#0F766E] flex items-center justify-center shrink-0 font-bold text-xl">
+                        🏫
+                    </div>
+                    <div>
+                        <p class="text-[11px] font-bold text-[#475569] uppercase tracking-wider">Active Sections</p>
+                        <p class="text-xl font-bold font-display text-[#0F766E] mt-0.5">${totalSections}</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-xl bg-[#FFF0D1] text-[#80530F] flex items-center justify-center shrink-0 font-bold text-xl">
+                        🏆
+                    </div>
+                    <div>
+                        <p class="text-[11px] font-bold text-[#475569] uppercase tracking-wider">Honor Roll Eligible</p>
+                        <p class="text-xl font-bold font-display text-[#80530F] mt-0.5">${honorQualifiersCount}</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-xl bg-[#EBF1F8] text-[#2C4870] flex items-center justify-center shrink-0 font-bold text-xl">
+                        📈
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-1.5">
+                            <p class="text-[11px] font-bold text-[#475569] uppercase tracking-wider">Pass Rate</p>
+                            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-[#D5F0EA] text-[#0F766E]">${passRate}%</span>
+                        </div>
+                        <p class="text-xl font-bold font-display text-[#2C4870] mt-0.5">${passingCount} Passed</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters & Search Toolbar -->
+            <div class="bg-white rounded-2xl p-4 border border-[#D8DEE8] shadow-2xs space-y-3 shrink-0 no-print">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1">
+                        <!-- Search Input -->
+                        <div class="relative flex-1">
+                            <svg class="w-4 h-4 text-[#475569] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                            </svg>
+                            <input type="text" id="studentReportSearchInput" value="${escapeHtml(state.studentReportSearch || '')}" oninput="App.onStudentReportSearch(this.value)" placeholder="Search student by name, LRN number, or section..." class="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-[#D8DEE8] focus:border-[#5276A7] focus:ring-2 focus:ring-[#5276A7]/20 outline-none">
+                        </div>
+
+                        <!-- Section Selector -->
+                        <select onchange="App.setStudentReportSectionFilter(this.value)" aria-label="Filter students by section" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] outline-none cursor-pointer">
+                            <option value="">All Sections (${totalStudents})</option>
+                            ${state.sections.map(s => `
+                                <option value="${s.id}" ${String(sectionFilter) === String(s.id) ? 'selected' : ''}>
+                                    ${escapeHtml(s.section_name)} (${escapeHtml(s.year_level)})
+                                </option>
+                            `).join('')}
+                        </select>
+
+                        <!-- Year Level Filter -->
+                        <select onchange="App.setStudentReportYearFilter(this.value)" aria-label="Filter students by year level" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D8DEE8] bg-white text-[#17243A] font-medium focus:border-[#5276A7] outline-none cursor-pointer">
+                            <option value="">All Year Levels</option>
+                            <option value="1st Year" ${yearFilter === '1st Year' ? 'selected' : ''}>1st Year</option>
+                            <option value="2nd Year" ${yearFilter === '2nd Year' ? 'selected' : ''}>2nd Year</option>
+                            <option value="3rd Year" ${yearFilter === '3rd Year' ? 'selected' : ''}>3rd Year</option>
+                            <option value="4th Year" ${yearFilter === '4th Year' ? 'selected' : ''}>4th Year</option>
+                            <option value="Grade 7" ${yearFilter === 'Grade 7' ? 'selected' : ''}>Grade 7</option>
+                            <option value="Grade 8" ${yearFilter === 'Grade 8' ? 'selected' : ''}>Grade 8</option>
+                            <option value="Grade 9" ${yearFilter === 'Grade 9' ? 'selected' : ''}>Grade 9</option>
+                            <option value="Grade 10" ${yearFilter === 'Grade 10' ? 'selected' : ''}>Grade 10</option>
+                            <option value="Grade 11" ${yearFilter === 'Grade 11' ? 'selected' : ''}>Grade 11</option>
+                            <option value="Grade 12" ${yearFilter === 'Grade 12' ? 'selected' : ''}>Grade 12</option>
+                        </select>
+
+                        <!-- Gender Filter Segmented Buttons -->
+                        <div class="inline-flex items-center rounded-xl border border-[#D8DEE8] p-1 bg-[#F5F7FA] shrink-0" role="group" aria-label="Filter by gender">
+                            <button type="button" onclick="App.setStudentReportGenderFilter('')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                                !genderFilter ? 'bg-[#17243A] text-white shadow-xs' : 'text-[#475569] hover:text-[#17243A]'
+                            }">
+                                All
+                            </button>
+                            <button type="button" onclick="App.setStudentReportGenderFilter('Female')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                                genderFilter === 'Female' ? 'bg-[#9B3F72] text-white shadow-xs' : 'text-[#475569] hover:text-[#17243A]'
+                            }">
+                                &#9792; Female
+                            </button>
+                            <button type="button" onclick="App.setStudentReportGenderFilter('Male')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                                genderFilter === 'Male' ? 'bg-[#5276A7] text-white shadow-xs' : 'text-[#475569] hover:text-[#17243A]'
+                            }">
+                                &#9794; Male
+                            </button>
+                        </div>
+
+                        ${(query || yearFilter || sectionFilter || genderFilter) ? `
+                            <button type="button" onclick="App.resetStudentReportFilters()" class="px-3 py-2 text-xs font-semibold text-[#842D60] bg-[#F5DFEB] hover:bg-[#eed3e3] rounded-xl transition cursor-pointer shrink-0">
+                                Reset Filters
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <!-- Section Pills Bar -->
+                <div class="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pt-1 pb-0.5">
+                    ${sectionPillsHtml}
+                </div>
+            </div>
+
+            <!-- Student Directory Datatable Container -->
+            <div class="bg-white rounded-2xl border border-[#D8DEE8] shadow-2xs flex-1 flex flex-col min-h-0 overflow-hidden no-print">
+                <div class="px-5 py-3.5 bg-[#F5F7FA] border-b border-[#D8DEE8] flex flex-wrap items-center justify-between gap-2 shrink-0">
+                    <div>
+                        <h3 class="font-display font-bold text-[#17243A] text-base">Learners Roster (${totalMatching} Students)</h3>
+                        <p class="text-xs text-[#475569] mt-0.5">Click "View Grade Card" on any row to open their full academic record in an interactive modal</p>
+                    </div>
+                    <span class="text-xs font-semibold text-[#5276A7] bg-[#EBF1F8] px-3 py-1 rounded-full border border-[#C5D5EA]">
+                        ${evalPeriod === 'FINAL' ? 'Cumulative Final Average' : `${evalPeriod} Quarter`}
+                    </span>
+                </div>
+
+                <div class="flex-1 overflow-auto custom-scrollbar sticky-table-container max-h-[640px]">
+                    <table class="w-full text-left border-collapse" aria-label="Student Grade Cards Table">
+                        <thead class="sticky top-0 z-10">
+                            <tr class="bg-[#F5F7FA] border-b border-[#D8DEE8] text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                <th scope="col" class="py-3 px-3.5 text-center">#</th>
+                                <th scope="col" class="py-3 px-3.5">Student ID / LRN</th>
+                                <th scope="col" class="py-3 px-3.5 min-w-[200px]">Learner / Student Name</th>
+                                <th scope="col" class="py-3 px-3.5">Section &amp; Year Level</th>
+                                <th scope="col" class="py-3 px-3.5">Curriculum Load</th>
+                                <th scope="col" class="py-3 px-3.5 text-center">Evaluation Avg</th>
+                                <th scope="col" class="py-3 px-3.5">Academic Standing</th>
+                                <th scope="col" class="py-3 px-3.5 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-[#D8DEE8]/70 text-sm">
+                            ${tableRowsHtml}
+                        </tbody>
+                    </table>
+                </div>
+
+                ${paginationHtml}
+            </div>
+        `;
     }
 
     function filterStudentsBySection(sectionId) {
@@ -7661,8 +8757,14 @@ const App = (() => {
 
             switchView(validPage, false);
 
+            const urlStudentId = urlParams.get('student_id');
+            if (urlStudentId) {
+                state.studentReportStudentId = Number(urlStudentId);
+            }
+
             if (validPage === 'grading') renderGradingView();
             else if (validPage === 'reports') renderReportsView();
+            else if (validPage === 'student_report') renderStudentReportView();
             else if (validPage === 'students') renderStudentsView();
             else if (validPage === 'sections') renderSectionsView();
             else if (validPage === 'subjects') renderSubjectsView();
@@ -7924,6 +9026,26 @@ const App = (() => {
         onReportHonorSearch,
         setReportGradeLevelFilter,
         onReportGradeLevelSearch,
+        openStudentGradeCard,
+        openStudentGradeCardModal,
+        navigateStudentModal,
+        onStudentModalSectionChange,
+        setStudentModalQuarter,
+        printStudentModalCard,
+        renderStudentGradeCardModal,
+        setStudentReportQuarter,
+        onStudentReportSectionChange,
+        navigateStudentReport,
+        printStudentReportCard,
+        renderStudentReportView,
+        setStudentReportSectionFilter,
+        setStudentReportGenderFilter,
+        setStudentReportYearFilter,
+        setStudentReportQuarterFilter,
+        onStudentReportSearch,
+        setStudentReportPage,
+        setStudentReportPageSize,
+        resetStudentReportFilters,
         setDashboardSection,
         setDashboardGenderFilter,
         setDashboardPageSize,

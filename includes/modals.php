@@ -945,5 +945,43 @@
     </div>
 </div>
 
+<!-- ==================== MODAL 12: LEARNER GRADE CARD & PROGRESS REPORT (FORM 138 / SF9) ==================== -->
+<div id="studentGradeCardModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="sgcmModalTitle">
+    <div class="min-h-screen px-2 sm:px-4 text-center flex items-center justify-center py-6 sm:py-8">
+        <div class="fixed inset-0 bg-[#17243A]/70 backdrop-blur-xs transition-opacity" onclick="App.closeModal('studentGradeCardModal')"></div>
+
+        <div class="inline-block w-full max-w-5xl my-auto text-left align-middle transition-all transform bg-white shadow-2xl rounded-2xl z-10 overflow-hidden border border-[#D8DEE8] flex flex-col max-h-[92vh]">
+            <!-- Modal Header -->
+            <div class="px-5 py-3.5 bg-[#17243A] text-white flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-white/10 text-[#FFF0D1] flex items-center justify-center font-bold text-lg shrink-0">
+                        🎓
+                    </div>
+                    <div>
+                        <h3 id="sgcmModalTitle" class="font-display font-bold text-base sm:text-lg text-white">Learner's Grade Card &amp; Progress Report</h3>
+                        <p id="sgcmModalSubtitle" class="text-xs text-slate-300 mt-0.5">DepEd Form 138 (SF9) &bull; Individual Student Academic Record</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="App.printStudentModalCard()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-white/15 hover:bg-white/25 border border-white/20 transition cursor-pointer" title="Print DepEd Form 138 / SF9">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                        <span>Print</span>
+                    </button>
+                    <button type="button" onclick="App.closeModal('studentGradeCardModal')" class="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/15 transition cursor-pointer" aria-label="Close dialog">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Modal Body Container (Scrollable) -->
+            <div id="studentGradeCardModalBody" class="p-4 sm:p-6 overflow-y-auto custom-scrollbar space-y-4 flex-1">
+                <!-- Dynamically populated by App.renderStudentGradeCardModal() -->
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Toast Notification Container with Generous Spacing -->
 <div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3.5 max-w-md w-full pointer-events-none no-print"></div>
